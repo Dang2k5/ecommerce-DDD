@@ -2,17 +2,20 @@ package com.dang.productservice.application.dtos;
 
 import com.dang.productservice.domain.model.aggregates.Product;
 import com.dang.productservice.domain.model.valueobjects.Money;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Getter
+@Setter
 public class ProductResponse {
     private String productId;
     private String name;
     private String description;
     private Money basePrice;
     private String categoryId;
-    private String sellerId;
     private String brand;
     private String imageUrl;
     private String specifications;
@@ -31,7 +34,6 @@ public class ProductResponse {
         response.description = product.getDetails().getDescription();
         response.basePrice = product.getBasePrice();
         response.categoryId = product.getCategoryId();
-        response.sellerId = product.getSellerId();
         response.brand = product.getDetails().getBrand();
         response.imageUrl = product.getDetails().getImageUrl();
         response.specifications = product.getDetails().getSpecifications();

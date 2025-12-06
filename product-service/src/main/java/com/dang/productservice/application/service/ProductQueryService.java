@@ -40,13 +40,6 @@ public class ProductQueryService {
         return products.map(ProductResponse::from);
     }
 
-    public List<ProductResponse> getProductsBySeller(String sellerId) {
-        List<Product> products = productRepository.findBySellerId(sellerId);
-        return products.stream()
-                .map(ProductResponse::from)
-                .collect(Collectors.toList());
-    }
-
     public Page<ProductResponse> getProductsByCategory(String categoryId, Pageable pageable) {
         Page<Product> products = productRepository.findByCategoryId(categoryId, pageable);
         return products.map(ProductResponse::from);
@@ -55,5 +48,10 @@ public class ProductQueryService {
     public Page<ProductResponse> getActiveProducts(Pageable pageable) {
         Page<Product> products = productRepository.findByStatus(ProductStatus.ACTIVE, pageable);
         return products.map(ProductResponse::from);
+    }
+
+    public Page<ProductResponse> getAllProductsPaged(Pageable pageable) {
+        return productRepository.findAll(pageable)
+                .map(ProductResponse::from);
     }
 }

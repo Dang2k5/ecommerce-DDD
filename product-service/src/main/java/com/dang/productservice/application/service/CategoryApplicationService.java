@@ -7,6 +7,7 @@ import com.dang.productservice.domain.model.entities.Category;
 import com.dang.productservice.domain.model.valueobjects.CategoryId;
 import com.dang.productservice.domain.repository.CategoryRepository;
 import com.dang.productservice.domain.service.CategoryDomainService;
+import com.dang.productservice.infrastructure.util.SlugUtil; // 🔹 THÊM IMPORT NÀY
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,28 +29,39 @@ public class CategoryApplicationService {
     }
 
     public Category createRootCategory(CreateCategoryCommand command) {
+        // 🔹 Nếu client không gửi slug hoặc gửi rỗng → tự generate từ name
+        String slug = command.getSlug();
+        if (slug == null || slug.trim().isEmpty()) {
+            slug = SlugUtil.toSlug(command.getName());
+        }
+
         Category category = categoryDomainService.createRootCategory(
                 command.getName(),
-                command.getSlug(),
+                slug,
                 command.getDescription()
         );
 
         return categoryRepository.save(category);
     }
 
+
     public Category createSubCategory(CreateCategoryCommand command) {
         if (command.getParentId() == null || command.getParentId().trim().isEmpty()) {
             throw new IllegalArgumentException("Parent ID is required for subcategory");
         }
 
-        Category category = categoryDomainService.createSubCategory(
+        String slug = command.getSlug();
+        if (slug == null || slug.trim().isEmpty()) {
+            slug = SlugUtil.toSlug(command.getName());
+        }
+
+        // Chỉ truyền parentId, name, slug, description cho domain service
+        return categoryDomainService.createSubCategory(
                 command.getParentId(),
                 command.getName(),
-                command.getSlug(),
+                slug,
                 command.getDescription()
         );
-
-        return categoryRepository.save(category);
     }
 
     @Transactional(readOnly = true)
@@ -92,6 +104,11 @@ public class CategoryApplicationService {
 
         if (command.getName() != null) {
             category.rename(command.getName());
+            // ❗ Tuỳ bạn:
+            // Nếu muốn khi đổi name thì cũng đổi luôn slug (khi client không gửi slug):
+            // if (command.getSlug() == null || command.getSlug().trim().isEmpty()) {
+            //     category.updateSlug(SlugUtil.toSlug(command.getName()));
+            // }
         }
 
         if (command.getSlug() != null) {

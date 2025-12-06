@@ -24,7 +24,6 @@ public class Product {
     private Money basePrice;
 
     private String categoryId;
-    private String sellerId;
 
     @Enumerated(EnumType.STRING)
     private ProductStatus status;
@@ -52,13 +51,12 @@ public class Product {
 
     // Factory method for creating new product
     public static Product create(ProductDetails details, Money basePrice,
-                                 String categoryId, String sellerId) {
+                                 String categoryId ) {
         Product product = new Product();
         product.productId = ProductId.generate();
         product.details = details;
         product.basePrice = basePrice;
         product.categoryId = categoryId;
-        product.sellerId = sellerId;
         product.status = ProductStatus.ACTIVE;
         product.statistics = new ProductStatistics();
         product.createdAt = System.currentTimeMillis();
@@ -261,10 +259,6 @@ public class Product {
         return statistics.getReviewCount();
     }
 
-    public boolean belongsToSeller(String sellerId) {
-        return this.sellerId.equals(sellerId);
-    }
-
     public boolean isActive() {
         return this.status == ProductStatus.ACTIVE;
     }
@@ -315,7 +309,6 @@ public class Product {
                 ", name=" + details.getName() +
                 ", status=" + status +
                 ", categoryId='" + categoryId + '\'' +
-                ", sellerId='" + sellerId + '\'' +
                 ", variantCount=" + variants.size() +
                 ", reviewCount=" + reviews.size() +
                 '}';

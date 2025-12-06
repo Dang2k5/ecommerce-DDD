@@ -1,6 +1,7 @@
 package com.dang.productservice.application.commands;
 
 import com.dang.productservice.domain.model.valueobjects.Money;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
@@ -23,10 +24,12 @@ public class CreateProductCommand {
     @NotBlank
     private String categoryId;
     @NotBlank
-    private String sellerId;
     private String brand;
     private String imageUrl;
+
+    @Valid
     private List<ProductVariantCommand> variants;
+
     private Integer initialStock;
     private String specifications;
     private String tags;

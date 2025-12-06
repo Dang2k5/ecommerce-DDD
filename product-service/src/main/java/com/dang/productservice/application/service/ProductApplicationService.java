@@ -7,9 +7,10 @@ import com.dang.productservice.domain.model.aggregates.Product;
 import com.dang.productservice.domain.model.valueobjects.ProductId;
 import com.dang.productservice.domain.repository.ProductRepository;
 import com.dang.productservice.domain.service.ProductDomainService;
-
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Optional;
 
 @Service
 @Transactional
@@ -40,7 +41,6 @@ public class ProductApplicationService {
                     command.getDescription(),
                     command.getBasePrice(),
                     command.getCategoryId(),
-                    command.getSellerId(),
                     command.getBrand(),
                     command.getImageUrl(),
                     command.getSpecifications(),
@@ -53,7 +53,6 @@ public class ProductApplicationService {
                     command.getDescription(),
                     command.getBasePrice(),
                     command.getCategoryId(),
-                    command.getSellerId(),
                     command.getBrand(),
                     command.getImageUrl()
             );
@@ -64,7 +63,6 @@ public class ProductApplicationService {
                     command.getDescription(),
                     command.getBasePrice(),
                     command.getCategoryId(),
-                    command.getSellerId(),
                     command.getBrand()
             );
         }
@@ -88,7 +86,7 @@ public class ProductApplicationService {
     }
 
     public Product updateProduct(String productId, UpdateProductCommand command) {
-        Product product = getProduct(productId);
+        Product product = getProductOrThrow(productId);
 
         // Update product details nếu có thay đổi
         if (command.getName() != null || command.getDescription() != null ||
@@ -118,59 +116,45 @@ public class ProductApplicationService {
         return productRepository.save(product);
     }
 
-    // Các methods khác giữ nguyên...
+    // ====== CÁCH 2: HÀM QUERY-FRIENDLY DÙNG OPTIONAL (KHÔNG NÉM EXCEPTION) ======
     @Transactional(readOnly = true)
-    public Product getProduct(String productId) {
+    public Optional<Product> findProduct(String productId) {
+        return productRepository.findById(ProductId.fromString(productId));
+    }
+
+    // ====== HÀM INTERNAL DÙNG CHO COMMAND (CÓ NÉM EXCEPTION) ======
+    @Transactional(readOnly = true)
+    protected Product getProductOrThrow(String productId) {
         return productRepository.findById(ProductId.fromString(productId))
                 .orElseThrow(() -> new ProductNotFoundException("Product not found: " + productId));
     }
 
     public void deleteProduct(String productId) {
-        Product product = productRepository.findById(ProductId.fromString(productId))
-                .orElseThrow(() -> new ProductNotFoundException("Product not found with id: " + productId));
+        Product product = getProductOrThrow(productId);
 
-        // Check business rules before deletion
-        if (product.getTotalStock() > 0) {
-            throw new IllegalStateException("Cannot delete product with existing stock");
-        }
-
-        // Check if product has active orders
-        // if (orderService.hasActiveOrders(productId)) {
-        //     throw new IllegalStateException("Cannot delete product with active orders");
+        // Nếu sau này có rule stock thì check ở đây (hiện tại anh đã bỏ rule đó đi)
+        // if (product.getTotalStock() > 0) {
+        //     throw new IllegalStateException("Cannot delete product with existing stock");
         // }
 
         productRepository.deleteById(product.getProductId());
     }
 
     public void activateProduct(String productId) {
-        Product product = productRepository.findById(ProductId.fromString(productId))
-                .orElseThrow(() -> new ProductNotFoundException("Product not found with id: " + productId));
-
+        Product product = getProductOrThrow(productId);
         product.activate();
         productRepository.save(product);
     }
 
     public void deactivateProduct(String productId) {
-        Product product = productRepository.findById(ProductId.fromString(productId))
-                .orElseThrow(() -> new ProductNotFoundException("Product not found with id: " + productId));
-
+        Product product = getProductOrThrow(productId);
         product.deactivate();
         productRepository.save(product);
     }
 
     public void markOutOfStock(String productId) {
-        Product product = productRepository.findById(ProductId.fromString(productId))
-                .orElseThrow(() -> new ProductNotFoundException("Product not found with id: " + productId));
-
+        Product product = getProductOrThrow(productId);
         product.markOutOfStock();
         productRepository.save(product);
-    }
-
-    public void addVariant(String productId, String sku, Double price, String currency, Integer stockQuantity) {
-        Product product = productRepository.findById(ProductId.fromString(productId))
-                .orElseThrow(() -> new ProductNotFoundException("Product not found with id: " + productId));
-
-        // Implementation for adding variant
-        // ... existing code ...
     }
 }

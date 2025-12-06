@@ -25,7 +25,7 @@ public class ProductId implements Serializable {
     }
 
     public static ProductId generate() {
-        return new ProductId("PROD_" + UUID.randomUUID().toString());
+        return new ProductId(UUID.randomUUID().toString());
     }
 
     public static ProductId fromString(String id) {

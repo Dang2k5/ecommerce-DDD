@@ -6,8 +6,6 @@ import com.dang.productservice.domain.model.valueobjects.CategoryId;
 import com.dang.productservice.domain.repository.CategoryRepository;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
-
 @Service
 public class CategoryDomainService {
 
@@ -17,22 +15,33 @@ public class CategoryDomainService {
         this.categoryRepository = categoryRepository;
     }
 
+    /**
+     * Tạo root category (không có parent).
+     */
     public Category createRootCategory(String name, String slug, String description) {
-        // Check if slug is unique
+        // Check slug unique
         if (categoryRepository.existsBySlug(slug)) {
             throw new IllegalArgumentException("Category slug already exists: " + slug);
         }
 
-        return Category.createRoot(name, slug, description);
+        Category root = Category.createRoot(name, slug, description);
+        // Lưu luôn trong DB (cho đồng nhất với createSubCategory)
+        return categoryRepository.save(root);
     }
 
-    public Category createSubCategory(String parentId, String subCategoryName, String slug, String description) {
-        // Validate
+    /**
+     * Tạo subcategory dưới 1 parent đã tồn tại.
+     */
+    public Category createSubCategory(String parentId,
+                                      String subCategoryName,
+                                      String slug,
+                                      String description) {
+
         if (parentId == null || parentId.trim().isEmpty()) {
             throw new IllegalArgumentException("Parent category ID cannot be null or empty");
         }
 
-        // Check if slug is unique
+        // Check slug unique
         if (categoryRepository.existsBySlug(slug)) {
             throw new IllegalArgumentException("Category slug already exists: " + slug);
         }
@@ -40,40 +49,32 @@ public class CategoryDomainService {
         // Tìm parent category
         CategoryId parentCategoryId = new CategoryId(parentId);
         Category parentCategory = categoryRepository.findById(parentCategoryId)
-                .orElseThrow(() -> new CategoryNotFoundException("Parent category not found with ID: " + parentId));
+                .orElseThrow(() ->
+                        new CategoryNotFoundException("Parent category not found with ID: " + parentId)
+                );
 
         if (!parentCategory.isActive()) {
             throw new IllegalArgumentException("Parent category is not active");
         }
 
-        // Tạo subcategory
-        Category subCategory = Category.create(subCategoryName, slug, description, parentId);
+        // Tạo subcategory: truyền parent (Category), KHÔNG truyền String parentId nữa
+        Category subCategory = Category.create(
+                subCategoryName,
+                slug,
+                description,
+                parentCategory
+        );
+
+        // (optional) đồng bộ 2 chiều quan hệ trong memory
+//        parentCategory.addSubcategory(subCategory);
+
+        // Lưu subcategory
         return categoryRepository.save(subCategory);
     }
 
-//    public Category createSubCategory(String parentId, String subCategoryName, String slug, String description) {
-//        // Validate
-//        if (parentId == null || parentId.trim().isEmpty()) {
-//            throw new IllegalArgumentException("Parent category ID cannot be null or empty");
-//        }
-//        // Tìm parent category
-//        CategoryId parentCategoryId = new CategoryId(parentId);
-//        Category parentCategory = categoryRepository.findById(parentCategoryId)
-//                .orElseThrow(() -> new CategoryNotFoundException("Parent category not found with ID: " + parentId));
-//
-//        // Tạo subcategory - ĐÚNG THỨ TỰ
-//        return Category.create(subCategoryName, slug, description, parentId);
-//        // Tạo subcategory - truyền parentId dưới dạng String
-////        Category subCategory = Category.create(
-////                subCategoryName,
-////                slug,
-////                description,
-////                parentId // Truyền String
-////        );
-////
-////        return categoryRepository.save(subCategory);
-//    }
-
+    /**
+     * Validate trước khi xoá category.
+     */
     public void validateCanDelete(Category category) {
         // Check if category has products
         if (categoryRepository.hasProducts(category.getId())) {

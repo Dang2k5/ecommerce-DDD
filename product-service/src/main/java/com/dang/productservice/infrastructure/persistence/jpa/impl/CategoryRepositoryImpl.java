@@ -43,7 +43,7 @@ public class CategoryRepositoryImpl implements CategoryRepository {
 
     @Override
     public List<Category> findByParentId(CategoryId parentId) {
-        return jpaCategoryRepository.findByParentId(parentId.getId());
+        return jpaCategoryRepository.findByParentId(parentId);
     }
 
     @Override

@@ -55,10 +55,6 @@ public class ProductRepositoryImpl implements ProductRepository {
         return jpaProductRepository.findByStatus(status, pageable);
     }
 
-    @Override
-    public List<Product> findBySellerId(String sellerId) {
-        return jpaProductRepository.findBySellerId(sellerId);
-    }
 
     @Override
     public boolean existsById(ProductId productId) {

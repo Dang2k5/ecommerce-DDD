@@ -30,9 +30,6 @@ public interface JpaProductRepository extends JpaRepository<Product, ProductId> 
     Page<Product> findByCategoryId(String categoryId, Pageable pageable);
     Page<Product> findByStatus(ProductStatus status, Pageable pageable);
 
-    @Query("SELECT p FROM Product p WHERE p.sellerId = :sellerId")
-    List<Product> findBySellerId(@Param("sellerId") String sellerId);
-
     @Query("SELECT COUNT(p) FROM Product p WHERE p.productId = :productId")
     boolean existsByProductId(@Param("productId") ProductId productId);
 

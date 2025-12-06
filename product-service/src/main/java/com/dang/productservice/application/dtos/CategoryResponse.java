@@ -2,13 +2,12 @@ package com.dang.productservice.application.dtos;
 
 import com.dang.productservice.domain.model.entities.Category;
 import lombok.Getter;
-
 import java.util.List;
 import java.util.stream.Collectors;
 
 @Getter
-public class CategoryResponse
-{
+public class CategoryResponse {
+
     private String categoryId;
     private String name;
     private String slug;
@@ -19,24 +18,36 @@ public class CategoryResponse
     private List<CategoryResponse> subcategories;
 
     public static CategoryResponse from(Category category) {
+
         CategoryResponse response = new CategoryResponse();
+
         response.categoryId = category.getId().getId();
         response.name = category.getName();
         response.slug = category.getSlug();
         response.description = category.getDescription();
-        response.parentId = category.getParentId() != null ? category.getParentId() : null;
+
+        // Lấy parentId từ entity mới (Category parent)
+        response.parentId = category.getParent() != null
+                ? category.getParent().getId().getId()
+                : null;
+
         response.active = category.isActive();
         response.root = category.isRoot();
+
+        // === map subcategories đệ quy ===
+        if (category.getSubcategories() != null && !category.getSubcategories().isEmpty()) {
+            response.subcategories = category.getSubcategories().stream()
+                    .map(CategoryResponse::from)   // RECURSIVE!
+                    .collect(Collectors.toList());
+        } else {
+            response.subcategories = List.of(); // không trả null
+        }
+
         return response;
     }
 
-    public static CategoryResponse fromWithSubcategories(Category category, List<Category> subcategories) {
-        CategoryResponse response = from(category);
-        response.subcategories = subcategories.stream()
-                .map(CategoryResponse::from)
-                .collect(Collectors.toList());
-        return response;
+    // Dành cho trường hợp override thủ công
+    public void setSubcategories(List<CategoryResponse> subcategories) {
+        this.subcategories = subcategories;
     }
-
-    public void setSubcategories(List<CategoryResponse> subcategories) { this.subcategories = subcategories; }
 }

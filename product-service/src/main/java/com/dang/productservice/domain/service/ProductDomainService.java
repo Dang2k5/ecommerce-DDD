@@ -13,29 +13,29 @@ import java.math.BigDecimal;
 public class ProductDomainService {
 
     public Product createBasicProduct(String name, String description, Money basePrice,
-                                      String categoryId, String sellerId, String brand) {
-        validateProductCreation(name, basePrice, categoryId, sellerId);
+                                      String categoryId, String brand) {
+        validateProductCreation(name, basePrice, categoryId);
 
         ProductDetails details = ProductDetails.create(name, description, brand);
-        return Product.create(details, basePrice, categoryId, sellerId);
+        return Product.create(details, basePrice, categoryId);
     }
 
     public Product createProductWithImage(String name, String description, Money basePrice,
-                                          String categoryId, String sellerId, String brand, String imageUrl) {
-        validateProductCreation(name, basePrice, categoryId, sellerId);
+                                          String categoryId, String brand, String imageUrl) {
+        validateProductCreation(name, basePrice, categoryId);
 
         ProductDetails details = ProductDetails.createWithImage(name, description, imageUrl, brand);
-        return Product.create(details, basePrice, categoryId, sellerId);
+        return Product.create(details, basePrice, categoryId);
     }
 
     public Product createFullProduct(String name, String description, Money basePrice,
-                                     String categoryId, String sellerId, String brand,
+                                     String categoryId, String brand,
                                      String imageUrl, String specifications, String tags) {
-        validateProductCreation(name, basePrice, categoryId, sellerId);
+        validateProductCreation(name, basePrice, categoryId);
 
         ProductDetails details = ProductDetails.createFull(name, description, imageUrl,
                 brand, specifications, tags);
-        return Product.create(details, basePrice, categoryId, sellerId);
+        return Product.create(details, basePrice, categoryId);
     }
 
     public void addVariantToProduct(Product product, String sku, String size, String color,
@@ -78,7 +78,7 @@ public class ProductDomainService {
         product.updateDetails(newDetails);
     }
 
-    private void validateProductCreation(String name, Money basePrice, String categoryId, String sellerId) {
+    private void validateProductCreation(String name, Money basePrice, String categoryId) {
         if (name == null || name.trim().isEmpty()) {
             throw new IllegalArgumentException("Product name cannot be null or empty");
         }
@@ -90,9 +90,6 @@ public class ProductDomainService {
         }
         if (categoryId == null || categoryId.trim().isEmpty()) {
             throw new IllegalArgumentException("Category ID cannot be null or empty");
-        }
-        if (sellerId == null || sellerId.trim().isEmpty()) {
-            throw new IllegalArgumentException("Seller ID cannot be null or empty");
         }
     }
 

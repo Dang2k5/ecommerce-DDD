@@ -13,9 +13,9 @@ import java.util.Optional;
 public interface JpaCategoryRepository extends JpaRepository<Category, CategoryId> {
 
     Optional<Category> findBySlug(String slug);
-    List<Category> findByParentId(String parentId);
+    List<Category> findByParentId(CategoryId parentId);
 
-    @Query("SELECT c FROM Category c WHERE c.parentId IS NULL")
+    @Query("SELECT c FROM Category c WHERE c.parent IS NULL")
     List<Category> findRootCategories();
 
     boolean existsBySlug(String slug);

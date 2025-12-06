@@ -18,7 +18,6 @@ public interface ProductRepository {
     Page<Product> findByCategoryId(String categoryId, Pageable pageable);
     Page<Product> findByNameContaining(String name, Pageable pageable);
     Page<Product> findByStatus(ProductStatus status, Pageable pageable);
-    List<Product> findBySellerId(String sellerId);
     boolean existsById(ProductId productId);
     void deleteById(ProductId productId);
     long count();

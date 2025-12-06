@@ -2,8 +2,13 @@ package com.dang.productservice.application.dtos;
 
 import com.dang.productservice.domain.model.entities.ProductVariant;
 import com.dang.productservice.domain.model.valueobjects.Money;
+import lombok.Getter;
+import lombok.Setter;
 
+@Getter
+@Setter
 public class ProductVariantResponse {
+
     private String variantId;
     private String sku;
     private String size;
@@ -15,7 +20,9 @@ public class ProductVariantResponse {
 
     public static ProductVariantResponse from(ProductVariant variant) {
         ProductVariantResponse response = new ProductVariantResponse();
+
         response.variantId = variant.getVariantId();
+
         response.sku = variant.getSku();
         response.size = variant.getSize();
         response.color = variant.getColor();
@@ -23,6 +30,7 @@ public class ProductVariantResponse {
         response.price = variant.getPrice();
         response.stockQuantity = variant.getStockQuantity();
         response.inStock = variant.isInStock();
+
         return response;
     }
 }

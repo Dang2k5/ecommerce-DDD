@@ -14,8 +14,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-
 @RestController
 @RequestMapping("/api/products")
 public class ProductController {
@@ -23,7 +21,8 @@ public class ProductController {
     private final ProductApplicationService productApplicationService;
     private final ProductQueryService productQueryService;
 
-    public ProductController(ProductApplicationService productApplicationService, ProductQueryService productQueryService) {
+    public ProductController(ProductApplicationService productApplicationService,
+                             ProductQueryService productQueryService) {
         this.productApplicationService = productApplicationService;
         this.productQueryService = productQueryService;
     }
@@ -34,10 +33,13 @@ public class ProductController {
         return ResponseEntity.status(HttpStatus.CREATED).body(ProductResponse.from(product));
     }
 
+    // ====== GET BY ID – DÙNG Optional, KHÔNG NÉM EXCEPTION ======
     @GetMapping("/{productId}")
     public ResponseEntity<ProductResponse> getProduct(@PathVariable String productId) {
-        var product = productQueryService.getProductById(productId);
-        return ResponseEntity.ok(product);
+        return productApplicationService.findProduct(productId)
+                .map(ProductResponse::from)         // domain -> DTO
+                .map(ResponseEntity::ok)            // 200 OK
+                .orElseGet(() -> ResponseEntity.notFound().build()); // 404 nếu không có
     }
 
     @GetMapping
@@ -51,7 +53,9 @@ public class ProductController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
-        ProductSearchCriteria criteria = new ProductSearchCriteria(name, categoryId, brand, minPrice, maxPrice, inStock);
+        ProductSearchCriteria criteria = new ProductSearchCriteria(
+                name, categoryId, brand, minPrice, maxPrice, inStock
+        );
         Pageable pageable = PageRequest.of(page, size);
 
         Page<ProductResponse> products = productQueryService.searchProducts(criteria, pageable);
@@ -72,12 +76,6 @@ public class ProductController {
         return ResponseEntity.noContent().build();
     }
 
-    @GetMapping("/seller/{sellerId}")
-    public ResponseEntity<List<ProductResponse>> getProductsBySeller(@PathVariable String sellerId) {
-        var products = productQueryService.getProductsBySeller(sellerId);
-        return ResponseEntity.ok(products);
-    }
-
     @PostMapping("/{productId}/activate")
     public ResponseEntity<Void> activateProduct(@PathVariable String productId) {
         productApplicationService.activateProduct(productId);
@@ -88,5 +86,17 @@ public class ProductController {
     public ResponseEntity<Void> deactivateProduct(@PathVariable String productId) {
         productApplicationService.deactivateProduct(productId);
         return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/list")
+    public ResponseEntity<Page<ProductResponse>> getAllProductsPaged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        Pageable pageable = PageRequest.of(page, size);
+
+        Page<ProductResponse> products = productQueryService.getAllProductsPaged(pageable);
+
+        return ResponseEntity.ok(products);
     }
 }

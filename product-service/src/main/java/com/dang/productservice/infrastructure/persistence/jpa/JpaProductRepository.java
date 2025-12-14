@@ -1,6 +1,8 @@
 package com.dang.productservice.infrastructure.persistence.jpa;
 
 import com.dang.productservice.domain.model.aggregates.Product;
+import com.dang.productservice.domain.model.entities.ProductVariant;
+import com.dang.productservice.domain.model.valueobjects.CategoryId;
 import com.dang.productservice.domain.model.valueobjects.ProductId;
 import com.dang.productservice.domain.model.valueobjects.ProductStatus;
 import org.springframework.data.domain.Page;
@@ -10,46 +12,106 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.util.List;
+import java.math.BigDecimal;
+import java.util.Locale;
 import java.util.Optional;
 
 @Repository
 public interface JpaProductRepository extends JpaRepository<Product, ProductId> {
-    // Custom query để tìm bằng ProductId value object
-    @Query("SELECT p FROM Product p WHERE p.productId = :productId")
-    Optional<Product> findByProductId(@Param("productId") ProductId productId);
 
-    @Query("SELECT p FROM Product p WHERE p.productId.id = :productId")
-    Optional<Product> findByProductIdString(@Param("productId") String productId);
-
+    // ===== Simple derived queries =====
     Optional<Product> findByVariants_Sku(String sku);
 
-    @Query("SELECT p FROM Product p WHERE LOWER(p.details.name) LIKE LOWER(CONCAT('%', :name, '%'))")
-    Page<Product> findByNameContaining(@Param("name") String name, Pageable pageable);
+    /**
+     * Internal query: param nameLike đã là "%...%" và đã lowercase
+     * => tránh lower(concat('%', :name, '%')) gây lower(bytea)
+     */
+    @Query("""
+        select p
+        from Product p
+        where (:nameLike is null or lower(p.details.name) like :nameLike)
+    """)
+    Page<Product> findByNameLike(@Param("nameLike") String nameLike, Pageable pageable);
 
-    Page<Product> findByCategoryId(String categoryId, Pageable pageable);
+    /**
+     * Public API giữ nguyên như bạn đang dùng:
+     * - nhận name raw
+     * - tự build pattern "%...%" + lowercase
+     */
+    default Page<Product> findByNameContaining(String name, Pageable pageable) {
+        return findByNameLike(toLikePattern(name), pageable);
+    }
+
+    Page<Product> findByCategoryId(CategoryId categoryId, Pageable pageable);
+
     Page<Product> findByStatus(ProductStatus status, Pageable pageable);
 
-    @Query("SELECT COUNT(p) FROM Product p WHERE p.productId = :productId")
-    boolean existsByProductId(@Param("productId") ProductId productId);
+    long countByCategoryId(CategoryId categoryId);
 
-    @Query("SELECT COUNT(p) FROM Product p WHERE p.categoryId = :categoryId")
-    long countByCategoryId(@Param("categoryId") String categoryId);
+    // ===== Filter search =====
+    @Query("""
+        select p
+        from Product p
+        where
+            (:nameLike is null or lower(p.details.name) like :nameLike)
+        and (:categoryId is null or p.categoryId = :categoryId)
+        and (:brandLike is null or lower(p.details.brand) like :brandLike)
+        and (:minPrice is null or p.basePrice.amount >= :minPrice)
+        and (:maxPrice is null or p.basePrice.amount <= :maxPrice)
+        and (
+            :inStock is null
+            or (
+                :inStock = true
+                and exists (
+                    select 1
+                    from ProductVariant v
+                    where v.product = p and v.stockQuantity > 0
+                )
+            )
+            or (
+                :inStock = false
+                and not exists (
+                    select 1
+                    from ProductVariant v
+                    where v.product = p and v.stockQuantity > 0
+                )
+            )
+        )
+    """)
+    Page<Product> findByFiltersLike(@Param("nameLike") String nameLike,
+                                    @Param("categoryId") CategoryId categoryId,
+                                    @Param("brandLike") String brandLike,
+                                    @Param("minPrice") BigDecimal minPrice,
+                                    @Param("maxPrice") BigDecimal maxPrice,
+                                    @Param("inStock") Boolean inStock,
+                                    Pageable pageable);
 
-    @Query("SELECT p FROM Product p WHERE " +
-            "(:name IS NULL OR LOWER(p.details.name) LIKE LOWER(CONCAT('%', :name, '%'))) AND " +
-            "(:categoryId IS NULL OR p.categoryId = :categoryId) AND " +
-            "(:brand IS NULL OR LOWER(p.details.brand) LIKE LOWER(CONCAT('%', :brand, '%'))) AND " +
-            "(:minPrice IS NULL OR p.basePrice.amount >= :minPrice) AND " +
-            "(:maxPrice IS NULL OR p.basePrice.amount <= :maxPrice) AND " +
-            "(:inStock IS NULL OR (:inStock = true AND p.status = 'ACTIVE' AND EXISTS (SELECT v FROM p.variants v WHERE v.stockQuantity > 0)) OR " +
-            "(:inStock = false AND (p.status = 'OUT_OF_STOCK' OR NOT EXISTS (SELECT v FROM p.variants v WHERE v.stockQuantity > 0))))")
-    Page<Product> findByFilters(@Param("name") String name,
-                                @Param("categoryId") String categoryId,
-                                @Param("brand") String brand,
-                                @Param("minPrice") Double minPrice,
-                                @Param("maxPrice") Double maxPrice,
-                                @Param("inStock") Boolean inStock,
-                                Pageable pageable);
+    /**
+     * Public API giữ nguyên signature như bạn đang dùng.
+     * Wrapper sẽ build like pattern để query không phải lower(param).
+     */
+    default Page<Product> findByFilters(String name,
+                                        CategoryId categoryId,
+                                        String brand,
+                                        BigDecimal minPrice,
+                                        BigDecimal maxPrice,
+                                        Boolean inStock,
+                                        Pageable pageable) {
+        return findByFiltersLike(
+                toLikePattern(name),
+                categoryId,
+                toLikePattern(brand),
+                minPrice,
+                maxPrice,
+                inStock,
+                pageable
+        );
+    }
+
+    private static String toLikePattern(String raw) {
+        if (raw == null) return null;
+        String v = raw.strip();
+        if (v.isEmpty()) return null;
+        return "%" + v.toLowerCase(Locale.ROOT) + "%";
+    }
 }
-

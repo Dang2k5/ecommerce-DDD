@@ -14,76 +14,74 @@ import java.util.Optional;
 @Repository
 public class CategoryRepositoryImpl implements CategoryRepository {
 
-    private final JpaCategoryRepository jpaCategoryRepository;
+    private final JpaCategoryRepository jpa;
 
-    public CategoryRepositoryImpl(JpaCategoryRepository jpaCategoryRepository) {
-        this.jpaCategoryRepository = jpaCategoryRepository;
+    public CategoryRepositoryImpl(JpaCategoryRepository jpa) {
+        this.jpa = jpa;
     }
 
     @Override
     public Category save(Category category) {
-        return jpaCategoryRepository.save(category);
+        return jpa.save(category);
     }
 
     @Override
     public Optional<Category> findById(CategoryId categoryId) {
-        return jpaCategoryRepository.findById(categoryId);
+        return jpa.findById(categoryId);
     }
-
 
     @Override
     public Optional<Category> findBySlug(String slug) {
-        return jpaCategoryRepository.findBySlug(slug);
+        return jpa.findBySlug(slug);
     }
 
     @Override
     public List<Category> findAll() {
-        return jpaCategoryRepository.findAll();
-    }
-
-    @Override
-    public List<Category> findByParentId(CategoryId parentId) {
-        return jpaCategoryRepository.findByParentId(parentId);
-    }
-
-    @Override
-    public List<Category> findRootCategories() {
-        return jpaCategoryRepository.findRootCategories();
+        return jpa.findAll();
     }
 
     @Override
     public Page<Category> findAll(Pageable pageable) {
-        return jpaCategoryRepository.findAll(pageable);
+        return jpa.findAll(pageable);
+    }
+
+    @Override
+    public List<Category> findByParentId(CategoryId parentId) {
+        return jpa.findByParentId(parentId); // ✅ sửa đúng naming
+    }
+
+    @Override
+    public List<Category> findRootCategories() {
+        return jpa.findRootCategories();
+    }
+
+    @Override
+    public List<Category> findByActiveTrue() {
+        return jpa.findByActiveTrue();
     }
 
     @Override
     public boolean existsById(CategoryId categoryId) {
-        return jpaCategoryRepository.existsById(categoryId);
+        return jpa.existsById(categoryId);
     }
-
 
     @Override
     public boolean existsBySlug(String slug) {
-        return jpaCategoryRepository.existsBySlug(slug);
+        return jpa.existsBySlug(slug);
     }
 
     @Override
     public boolean hasProducts(CategoryId categoryId) {
-        return false;
+        return jpa.hasProducts(categoryId); // ✅ implement thật
     }
 
     @Override
     public boolean hasActiveSubcategories(CategoryId categoryId) {
-        return false;
+        return jpa.hasActiveSubcategories(categoryId); // ✅ implement thật
     }
 
     @Override
     public void deleteById(CategoryId categoryId) {
-        jpaCategoryRepository.deleteById(categoryId);
-    }
-
-    @Override
-    public long count() {
-        return jpaCategoryRepository.count();
+        jpa.deleteById(categoryId);
     }
 }

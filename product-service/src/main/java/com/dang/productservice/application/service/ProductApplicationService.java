@@ -1,84 +1,76 @@
 package com.dang.productservice.application.service;
 
 import com.dang.productservice.application.commands.CreateProductCommand;
+import com.dang.productservice.application.commands.ProductVariantCommand;
 import com.dang.productservice.application.commands.UpdateProductCommand;
+import com.dang.productservice.application.exceptions.CategoryNotFoundException;
 import com.dang.productservice.application.exceptions.ProductNotFoundException;
 import com.dang.productservice.domain.model.aggregates.Product;
+import com.dang.productservice.domain.model.valueobjects.CategoryId;
+import com.dang.productservice.domain.model.valueobjects.Money;
+import com.dang.productservice.domain.model.valueobjects.ProductDetails;
 import com.dang.productservice.domain.model.valueobjects.ProductId;
+import com.dang.productservice.domain.repository.CategoryRepository;
 import com.dang.productservice.domain.repository.ProductRepository;
-import com.dang.productservice.domain.service.ProductDomainService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 
+/**
+ * Application service cho Product.
+ * <p>
+ * Clean-up:
+ * - Bỏ DomainService vì aggregate Product đã encapsulate đầy đủ invariants (price, details, variant, stock).
+ * - Tránh gọi chéo ApplicationService (Product -> CategoryApplicationService) để giảm coupling.
+ */
 @Service
 @Transactional
 public class ProductApplicationService {
 
     private final ProductRepository productRepository;
-    private final ProductDomainService productDomainService;
-    private final CategoryApplicationService categoryApplicationService;
+    private final CategoryRepository categoryRepository;
 
     public ProductApplicationService(ProductRepository productRepository,
-                                     ProductDomainService productDomainService,
-                                     CategoryApplicationService categoryApplicationService) {
+                                     CategoryRepository categoryRepository) {
         this.productRepository = productRepository;
-        this.productDomainService = productDomainService;
-        this.categoryApplicationService = categoryApplicationService;
+        this.categoryRepository = categoryRepository;
     }
 
     public Product createProduct(CreateProductCommand command) {
-        // Validate category exists
-        categoryApplicationService.validateCategoryExists(command.getCategoryId());
+        CategoryId categoryId = requireExistingCategory(command.getCategoryId());
 
-        Product product;
+        Money basePrice = Money.of(command.getBasePriceAmount(), command.getBasePriceCurrency());
 
-        if (command.getImageUrl() != null && command.getSpecifications() != null) {
-            // Create full product với tất cả thông tin
-            product = productDomainService.createFullProduct(
-                    command.getName(),
-                    command.getDescription(),
-                    command.getBasePrice(),
-                    command.getCategoryId(),
-                    command.getBrand(),
-                    command.getImageUrl(),
-                    command.getSpecifications(),
-                    command.getTags()
-            );
-        } else if (command.getImageUrl() != null) {
-            // Create product với image
-            product = productDomainService.createProductWithImage(
-                    command.getName(),
-                    command.getDescription(),
-                    command.getBasePrice(),
-                    command.getCategoryId(),
-                    command.getBrand(),
-                    command.getImageUrl()
-            );
-        } else {
-            // Create basic product
-            product = productDomainService.createBasicProduct(
-                    command.getName(),
-                    command.getDescription(),
-                    command.getBasePrice(),
-                    command.getCategoryId(),
-                    command.getBrand()
-            );
-        }
+        ProductDetails details = ProductDetails.of(
+                command.getName(),
+                command.getDescription(),
+                command.getImageUrl(),
+                command.getBrand(),
+                command.getSpecifications(),
+                command.getTags()
+        );
 
-        // Add variants if any
-        if (command.getVariants() != null) {
-            command.getVariants().forEach(variantCommand ->
-                    productDomainService.addVariantToProduct(
-                            product,
-                            variantCommand.getSku(),
-                            variantCommand.getSize(),
-                            variantCommand.getColor(),
-                            variantCommand.getMaterial(),
-                            variantCommand.getPrice(),
-                            variantCommand.getInitialStock()
-                    )
+        Product product = Product.create(details, basePrice, categoryId);
+
+        if (command.getVariants() != null && !command.getVariants().isEmpty()) {
+            for (ProductVariantCommand v : command.getVariants()) {
+                product.createVariant(
+                        v.getSku(),
+                        v.getSize(),
+                        v.getColor(),
+                        v.getMaterial(),
+                        Money.of(v.getPriceAmount(), v.getPriceCurrency()),
+                        v.getInitialStock()
+                );
+            }
+        } else if (command.getInitialStock() != null) {
+            // Rule tối thiểu: nếu không có variants mà có initialStock -> tạo 1 variant "DEFAULT".
+            // Nếu bạn không muốn auto-create, hãy xóa block này và để strict (throw) thay vì tạo default.
+            product.createVariant(
+                    "DEFAULT-" + product.getProductId().value(),
+                    Money.of(command.getBasePriceAmount(), command.getBasePriceCurrency()),
+                    command.getInitialStock()
             );
         }
 
@@ -88,55 +80,50 @@ public class ProductApplicationService {
     public Product updateProduct(String productId, UpdateProductCommand command) {
         Product product = getProductOrThrow(productId);
 
-        // Update product details nếu có thay đổi
-        if (command.getName() != null || command.getDescription() != null ||
-                command.getImageUrl() != null || command.getBrand() != null ||
-                command.getSpecifications() != null || command.getTags() != null) {
-
-            productDomainService.updateProductDetails(
-                    product,
-                    command.getName(),
-                    command.getDescription(),
-                    command.getImageUrl(),
-                    command.getBrand(),
-                    command.getSpecifications(),
-                    command.getTags()
+        // patch details
+        if (hasAnyDetailsChange(command)) {
+            var current = product.getDetails();
+            ProductDetails updated = ProductDetails.of(
+                    pick(command.getName(), current.name()),
+                    pick(command.getDescription(), current.description()),
+                    pick(command.getImageUrl(), current.imageUrl()),
+                    pick(command.getBrand(), current.brand()),
+                    pick(command.getSpecifications(), current.specifications()),
+                    pick(command.getTags(), current.tags())
             );
+            product.updateDetails(updated);
         }
 
-        if (command.getBasePrice() != null) {
-            productDomainService.updateProductPrice(product, command.getBasePrice());
+        // patch base price: phải đủ amount + currency
+        if (command.getBasePriceAmount() != null || command.getBasePriceCurrency() != null) {
+            if (command.getBasePriceAmount() == null || command.getBasePriceCurrency() == null) {
+                throw new IllegalArgumentException("basePriceAmount and basePriceCurrency must be provided together");
+            }
+            product.updateBasePrice(Money.of(command.getBasePriceAmount(), command.getBasePriceCurrency()));
         }
 
-        if (command.getCategoryId() != null) {
-            categoryApplicationService.validateCategoryExists(command.getCategoryId());
-            product.changeCategory(command.getCategoryId());
+        // patch category
+        if (command.getCategoryId() != null && !command.getCategoryId().isBlank()) {
+            CategoryId newCategoryId = requireExistingCategory(command.getCategoryId());
+            product.changeCategory(newCategoryId);
         }
 
         return productRepository.save(product);
     }
 
-    // ====== CÁCH 2: HÀM QUERY-FRIENDLY DÙNG OPTIONAL (KHÔNG NÉM EXCEPTION) ======
     @Transactional(readOnly = true)
     public Optional<Product> findProduct(String productId) {
-        return productRepository.findById(ProductId.fromString(productId));
+        return productRepository.findById(ProductId.of(requireId(productId)));
     }
 
-    // ====== HÀM INTERNAL DÙNG CHO COMMAND (CÓ NÉM EXCEPTION) ======
     @Transactional(readOnly = true)
     protected Product getProductOrThrow(String productId) {
-        return productRepository.findById(ProductId.fromString(productId))
+        return productRepository.findById(ProductId.of(requireId(productId)))
                 .orElseThrow(() -> new ProductNotFoundException("Product not found: " + productId));
     }
 
     public void deleteProduct(String productId) {
         Product product = getProductOrThrow(productId);
-
-        // Nếu sau này có rule stock thì check ở đây (hiện tại anh đã bỏ rule đó đi)
-        // if (product.getTotalStock() > 0) {
-        //     throw new IllegalStateException("Cannot delete product with existing stock");
-        // }
-
         productRepository.deleteById(product.getProductId());
     }
 
@@ -156,5 +143,37 @@ public class ProductApplicationService {
         Product product = getProductOrThrow(productId);
         product.markOutOfStock();
         productRepository.save(product);
+    }
+
+    // ===== Helpers =====
+
+    private CategoryId requireExistingCategory(String rawCategoryId) {
+        CategoryId categoryId = CategoryId.of(requireId(rawCategoryId));
+        if (!categoryRepository.existsById(categoryId)) {
+            throw new CategoryNotFoundException("Category not found: " + rawCategoryId);
+        }
+        return categoryId;
+    }
+
+    private static boolean hasAnyDetailsChange(UpdateProductCommand c) {
+        return c.getName() != null
+                || c.getDescription() != null
+                || c.getImageUrl() != null
+                || c.getBrand() != null
+                || c.getSpecifications() != null
+                || c.getTags() != null;
+    }
+
+    private static String requireId(String id) {
+        if (id == null || id.isBlank()) {
+            throw new IllegalArgumentException("Id cannot be null or empty");
+        }
+        return id.strip();
+    }
+
+    private static String pick(String incoming, String current) {
+        if (incoming == null) return current;
+        String v = incoming.strip();
+        return v.isEmpty() ? current : v;
     }
 }

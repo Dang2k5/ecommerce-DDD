@@ -5,192 +5,182 @@ import com.dang.productservice.domain.model.valueobjects.Money;
 import jakarta.persistence.*;
 import lombok.Getter;
 
+import java.io.Serializable;
 import java.util.Objects;
+import java.util.UUID;
 
 @Entity
-@Table(name = "product_variants")
+@Table(
+        name = "product_variants",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_product_variants_sku", columnNames = "sku")
+        },
+        indexes = {
+                @Index(name = "idx_product_variants_product_id", columnList = "product_id")
+        }
+)
 @Getter
-public class ProductVariant {
+public class ProductVariant implements Serializable {
+
     @Id
+    @Column(name = "variant_id", nullable = false, length = 50, updatable = false)
     private String variantId;
 
+    @Column(name = "sku", nullable = false, length = 100)
     private String sku;
+
+    @Column(name = "size", length = 50)
     private String size;
+
+    @Column(name = "color", length = 50)
     private String color;
+
+    @Column(name = "material", length = 50)
     private String material;
 
     @Embedded
-    @AttributeOverride(name = "amount", column = @Column(name = "price_amount"))
-    @AttributeOverride(name = "currency", column = @Column(name = "price_currency"))
+    @AttributeOverrides({
+            @AttributeOverride(name = "amount", column = @Column(name = "price_amount", nullable = false)),
+            @AttributeOverride(name = "currency", column = @Column(name = "price_currency", nullable = false, length = 3))
+    })
     private Money price;
 
-    private Integer stockQuantity;
+    @Column(name = "stock_quantity", nullable = false)
+    private int stockQuantity;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "product_id")
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "product_id", nullable = false)
     private Product product;
 
     protected ProductVariant() {
         // for JPA
     }
 
-    // ✅ CONSTRUCTOR CHÍNH - không cần variantId (tự generate)
-    public ProductVariant(String sku, String size, String color, String material,
-                          Money price, Integer stockQuantity) {
-        validateInput(sku, price, stockQuantity);
-
-        this.variantId = generateVariantId();
-        this.sku = sku.trim();
-        this.size = (size != null) ? size.trim() : null;
-        this.color = (color != null) ? color.trim() : null;
-        this.material = (material != null) ? material.trim() : null;
-        this.price = price;
-        this.stockQuantity = stockQuantity;
+    private ProductVariant(String sku,
+                           String size,
+                           String color,
+                           String material,
+                           Money price,
+                           int stockQuantity) {
+        this.variantId = newVariantId();
+        this.sku = normalizeAndValidateSku(sku);
+        this.size = normalizeNullable(size, 50);
+        this.color = normalizeNullable(color, 50);
+        this.material = normalizeNullable(material, 50);
+        this.price = requirePrice(price);
+        this.stockQuantity = validateStock(stockQuantity);
     }
 
-    // ✅ CONSTRUCTOR với product (cho bidirectional relationship)
-    public ProductVariant(String sku, String size, String color, String material,
-                          Money price, Integer stockQuantity, Product product) {
-        this(sku, size, color, material, price, stockQuantity);
-        this.product = product;
-    }
-
-    // ✅ FACTORY METHOD
-    public static ProductVariant create(String sku, Money price, Integer stockQuantity) {
-        return new ProductVariant(sku, null, null, null, price, stockQuantity);
-    }
-
-    public static ProductVariant create(String sku, String size, String color,
-                                        Money price, Integer stockQuantity) {
-        return new ProductVariant(sku, size, color, null, price, stockQuantity);
-    }
-
-    public static ProductVariant create(String sku, String size, String color, String material,
-                                        Money price, Integer stockQuantity) {
+    // ===== Factory =====
+    public static ProductVariant of(String sku,
+                                    String size,
+                                    String color,
+                                    String material,
+                                    Money price,
+                                    int stockQuantity) {
         return new ProductVariant(sku, size, color, material, price, stockQuantity);
     }
 
-    private String generateVariantId() {
-        return "var_" + java.util.UUID.randomUUID().toString().substring(0, 8);
+    public static ProductVariant simple(String sku, Money price, int stockQuantity) {
+        return new ProductVariant(sku, null, null, null, price, stockQuantity);
     }
 
-    private void validateInput(String sku, Money price, Integer stockQuantity) {
-        if (sku == null || sku.trim().isEmpty()) {
-            throw new IllegalArgumentException("SKU cannot be null or empty");
-        }
-        if (price == null ) {
-            throw new IllegalArgumentException("Price cannot be null or negative");
-        }
-        if (stockQuantity == null || stockQuantity < 0) {
-            throw new IllegalArgumentException("Stock quantity cannot be null or negative");
-        }
-    }
-
-    // ✅ DOMAIN METHODS
+    // ===== Domain methods =====
     public void updatePrice(Money newPrice) {
-        if (newPrice == null ) {
-            throw new IllegalArgumentException("Price cannot be null or negative");
-        }
-        this.price = newPrice;
+        this.price = requirePrice(newPrice);
     }
 
-    public void updateStock(Integer newQuantity) {
-        if (newQuantity == null || newQuantity < 0) {
-            throw new IllegalArgumentException("Stock quantity cannot be null or negative");
-        }
-        this.stockQuantity = newQuantity;
+    public void updateStock(int newQuantity) {
+        this.stockQuantity = validateStock(newQuantity);
     }
 
-    public void reduceStock(Integer quantity) {
-        if (quantity == null || quantity <= 0) {
-            throw new IllegalArgumentException("Quantity must be positive");
+    public void reduceStock(int quantity) {
+        if (quantity <= 0) throw new IllegalArgumentException("Quantity must be positive");
+        if (stockQuantity < quantity) {
+            throw new IllegalStateException("Insufficient stock. Available: " + stockQuantity + ", Requested: " + quantity);
         }
-        if (this.stockQuantity < quantity) {
-            throw new IllegalStateException(
-                    String.format("Insufficient stock. Available: %d, Requested: %d",
-                            this.stockQuantity, quantity)
-            );
-        }
-        this.stockQuantity -= quantity;
+        stockQuantity -= quantity;
     }
 
-    public void increaseStock(Integer quantity) {
-        if (quantity == null || quantity <= 0) {
-            throw new IllegalArgumentException("Quantity must be positive");
-        }
-        this.stockQuantity += quantity;
+    public void increaseStock(int quantity) {
+        if (quantity <= 0) throw new IllegalArgumentException("Quantity must be positive");
+        stockQuantity += quantity;
     }
 
     public boolean isInStock() {
-        return this.stockQuantity > 0;
-    }
-
-    public boolean hasLowStock() {
-        return this.stockQuantity > 0 && this.stockQuantity <= 10; // Threshold for low stock
+        return stockQuantity > 0;
     }
 
     public boolean isOutOfStock() {
-        return this.stockQuantity == 0;
+        return stockQuantity == 0;
     }
 
-    public Money calculateTotalValue() {
-        return this.price.multiply(this.stockQuantity);
+    public boolean hasLowStock(int threshold) {
+        if (threshold <= 0) throw new IllegalArgumentException("Threshold must be positive");
+        return stockQuantity > 0 && stockQuantity <= threshold;
     }
 
-    // ✅ PRODUCT ASSOCIATION METHODS
-    public void associateWithProduct(Product product) {
-        if (product == null) {
-            throw new IllegalArgumentException("Product cannot be null");
-        }
-        this.product = product;
+    public Money totalValue() {
+        return price.multiply(stockQuantity);
     }
 
-    public void dissociateFromProduct() {
+    // ===== Association (đơn giản, thường aggregate root Product sẽ quản) =====
+
+    /**
+     * Aggregate root (Product) sẽ gọi để đảm bảo quan hệ 2 chiều nhất quán.
+     * Public để tránh hạn chế package khi tách aggregates/entities.
+     */
+    public void attachTo(Product product) {
+        this.product = Objects.requireNonNull(product, "Product cannot be null");
+    }
+
+    public void detach() {
         this.product = null;
     }
 
-    public boolean isAssociatedWithProduct() {
-        return this.product != null;
+    // ===== Helpers =====
+    private static String newVariantId() {
+        return "var_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
     }
 
-    public boolean belongsToProduct(String productId) {
-        return this.product != null &&
-                this.product.getProductId() != null &&
-                this.product.getProductId().getId().equals(productId);
+    private static String normalizeAndValidateSku(String raw) {
+        if (raw == null) throw new IllegalArgumentException("SKU cannot be null");
+        String v = raw.strip();
+        if (v.isEmpty()) throw new IllegalArgumentException("SKU cannot be empty");
+        if (v.length() > 100) throw new IllegalArgumentException("SKU cannot exceed 100 characters");
+        return v;
     }
 
-    // ✅ VALIDATION METHODS
-    public boolean hasSameAttributes(ProductVariant other) {
-        if (other == null) return false;
-
-        return Objects.equals(this.size, other.size) &&
-                Objects.equals(this.color, other.color) &&
-                Objects.equals(this.material, other.material);
+    private static String normalizeNullable(String raw, int maxLen) {
+        if (raw == null) return null;
+        String v = raw.strip();
+        if (v.isEmpty()) return null;
+        if (v.length() > maxLen) throw new IllegalArgumentException("Text cannot exceed " + maxLen + " characters");
+        return v;
     }
 
-    public boolean hasAttribute(String attributeName, String value) {
-        if (attributeName == null || value == null) return false;
-
-        switch (attributeName.toLowerCase()) {
-            case "size": return Objects.equals(this.size, value);
-            case "color": return Objects.equals(this.color, value);
-            case "material": return Objects.equals(this.material, value);
-            default: return false;
-        }
+    private static Money requirePrice(Money price) {
+        if (price == null) throw new IllegalArgumentException("Price cannot be null");
+        if (price.isNegative()) throw new IllegalArgumentException("Price cannot be negative");
+        return price;
     }
 
+    private static int validateStock(int qty) {
+        if (qty < 0) throw new IllegalArgumentException("Stock quantity cannot be negative");
+        return qty;
+    }
+
+    // ===== equals/hashCode theo PK =====
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        ProductVariant that = (ProductVariant) o;
-        return Objects.equals(variantId, that.variantId) ||
-                Objects.equals(sku, that.sku); // Also consider SKU as unique identifier
+        if (!(o instanceof ProductVariant other)) return false;
+        return Objects.equals(variantId, other.variantId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(variantId, sku);
+        return Objects.hash(variantId);
     }
 
     @Override
@@ -198,12 +188,7 @@ public class ProductVariant {
         return "ProductVariant{" +
                 "variantId='" + variantId + '\'' +
                 ", sku='" + sku + '\'' +
-                ", size='" + size + '\'' +
-                ", color='" + color + '\'' +
-                ", material='" + material + '\'' +
-                ", price=" + price +
                 ", stockQuantity=" + stockQuantity +
-                ", productId=" + (product != null ? product.getProductId().getId() : "null") +
                 '}';
     }
 }

@@ -2,8 +2,8 @@ package com.dang.productservice.application.dtos;
 
 import com.dang.productservice.domain.model.entities.Category;
 import lombok.Getter;
+
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Getter
 public class CategoryResponse {
@@ -17,37 +17,41 @@ public class CategoryResponse {
     private boolean root;
     private List<CategoryResponse> subcategories;
 
-    public static CategoryResponse from(Category category) {
-
-        CategoryResponse response = new CategoryResponse();
-
-        response.categoryId = category.getId().getId();
-        response.name = category.getName();
-        response.slug = category.getSlug();
-        response.description = category.getDescription();
-
-        // Lấy parentId từ entity mới (Category parent)
-        response.parentId = category.getParent() != null
-                ? category.getParent().getId().getId()
-                : null;
-
-        response.active = category.isActive();
-        response.root = category.isRoot();
-
-        // === map subcategories đệ quy ===
-        if (category.getSubcategories() != null && !category.getSubcategories().isEmpty()) {
-            response.subcategories = category.getSubcategories().stream()
-                    .map(CategoryResponse::from)   // RECURSIVE!
-                    .collect(Collectors.toList());
-        } else {
-            response.subcategories = List.of(); // không trả null
-        }
-
-        return response;
+    private CategoryResponse() {
+        // use factory
     }
 
-    // Dành cho trường hợp override thủ công
-    public void setSubcategories(List<CategoryResponse> subcategories) {
-        this.subcategories = subcategories;
+    /**
+     * Map mặc định: giới hạn depth để tránh recursion vô hạn
+     */
+    public static CategoryResponse from(Category category) {
+        return from(category, 5); // bạn chỉnh depth tuỳ nhu cầu
+    }
+
+    public static CategoryResponse from(Category category, int maxDepth) {
+        if (category == null) return null;
+
+        CategoryResponse res = new CategoryResponse();
+        res.categoryId = category.id().value();
+        res.name = category.getName();
+        res.slug = category.getSlug();
+        res.description = category.getDescription();
+        res.parentId = category.parentIdValue();
+        res.active = category.isActive();
+        res.root = category.isRoot();
+
+        if (maxDepth <= 0) {
+            res.subcategories = List.of();
+            return res;
+        }
+
+        List<Category> children = category.children();
+        res.subcategories = (children == null || children.isEmpty())
+                ? List.of()
+                : children.stream()
+                .map(child -> CategoryResponse.from(child, maxDepth - 1))
+                .toList();
+
+        return res;
     }
 }

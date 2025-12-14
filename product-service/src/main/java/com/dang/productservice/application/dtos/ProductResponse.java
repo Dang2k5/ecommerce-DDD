@@ -1,52 +1,64 @@
 package com.dang.productservice.application.dtos;
 
 import com.dang.productservice.domain.model.aggregates.Product;
-import com.dang.productservice.domain.model.valueobjects.Money;
 import lombok.Getter;
-import lombok.Setter;
 
+import java.math.BigDecimal;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Getter
-@Setter
 public class ProductResponse {
+
     private String productId;
     private String name;
     private String description;
-    private Money basePrice;
+
+    private BigDecimal basePriceAmount;
+    private String basePriceCurrency;
+
     private String categoryId;
     private String brand;
     private String imageUrl;
     private String specifications;
     private String tags;
+
     private String status;
     private boolean inStock;
-    private Integer totalStock;
-    private Double averageRating;
-    private Integer totalReviews;
+    private int totalStock;
+
     private List<ProductVariantResponse> variants;
 
-    public static ProductResponse from(Product product) {
-        ProductResponse response = new ProductResponse();
-        response.productId = product.getProductId().getId();
-        response.name = product.getDetails().getName();
-        response.description = product.getDetails().getDescription();
-        response.basePrice = product.getBasePrice();
-        response.categoryId = product.getCategoryId();
-        response.brand = product.getDetails().getBrand();
-        response.imageUrl = product.getDetails().getImageUrl();
-        response.specifications = product.getDetails().getSpecifications();
-        response.tags = product.getDetails().getTags();
-        response.status = product.getStatus().name();
-        response.inStock = product.isInStock();
-        response.totalStock = product.getTotalStock();
-        response.averageRating = product.getStatistics().getAverageRating();
-        response.totalReviews = product.getStatistics().getTotalReviews();
-        response.variants = product.getVariants().stream()
-                .map(ProductVariantResponse::from)
-                .collect(Collectors.toList());
+    private ProductResponse() {
+    }
 
-        return response;
+    public static ProductResponse from(Product product) {
+        ProductResponse res = new ProductResponse();
+
+        res.productId = product.getProductId().value();
+
+        res.name = product.getDetails().name();
+        res.description = product.getDetails().description();
+        res.brand = product.getDetails().brand();
+        res.imageUrl = product.getDetails().imageUrl();
+        res.specifications = product.getDetails().specifications();
+        res.tags = product.getDetails().tags();
+
+        res.basePriceAmount = product.getBasePrice().amount();
+        res.basePriceCurrency = product.getBasePrice().currency();
+
+        // ✅ CategoryId -> String
+        res.categoryId = product.getCategoryId().value();
+
+        res.status = product.getStatus().name();
+        res.inStock = product.isInStock();
+        res.totalStock = product.getTotalStock();
+
+        res.variants = product.getVariants() == null
+                ? List.of()
+                : product.getVariants().stream()
+                .map(ProductVariantResponse::from)
+                .toList();
+
+        return res;
     }
 }

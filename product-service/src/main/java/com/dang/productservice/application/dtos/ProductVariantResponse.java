@@ -1,12 +1,11 @@
 package com.dang.productservice.application.dtos;
 
 import com.dang.productservice.domain.model.entities.ProductVariant;
-import com.dang.productservice.domain.model.valueobjects.Money;
 import lombok.Getter;
-import lombok.Setter;
+
+import java.math.BigDecimal;
 
 @Getter
-@Setter
 public class ProductVariantResponse {
 
     private String variantId;
@@ -14,23 +13,32 @@ public class ProductVariantResponse {
     private String size;
     private String color;
     private String material;
-    private Money price;
-    private Integer stockQuantity;
+
+    private BigDecimal priceAmount;
+    private String priceCurrency;
+
+    private int stockQuantity;
     private boolean inStock;
 
+    private ProductVariantResponse() {
+        // use factory
+    }
+
     public static ProductVariantResponse from(ProductVariant variant) {
-        ProductVariantResponse response = new ProductVariantResponse();
+        ProductVariantResponse res = new ProductVariantResponse();
 
-        response.variantId = variant.getVariantId();
+        res.variantId = variant.getVariantId();
+        res.sku = variant.getSku();
+        res.size = variant.getSize();
+        res.color = variant.getColor();
+        res.material = variant.getMaterial();
 
-        response.sku = variant.getSku();
-        response.size = variant.getSize();
-        response.color = variant.getColor();
-        response.material = variant.getMaterial();
-        response.price = variant.getPrice();
-        response.stockQuantity = variant.getStockQuantity();
-        response.inStock = variant.isInStock();
+        res.priceAmount = variant.getPrice().amount();
+        res.priceCurrency = variant.getPrice().currency();
 
-        return response;
+        res.stockQuantity = variant.getStockQuantity();
+        res.inStock = variant.isInStock();
+
+        return res;
     }
 }

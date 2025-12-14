@@ -1,17 +1,18 @@
 package com.dang.productservice.domain.model.aggregates;
 
 import com.dang.productservice.domain.model.entities.ProductVariant;
-import com.dang.productservice.domain.model.entities.Review;
 import com.dang.productservice.domain.model.valueobjects.*;
 import jakarta.persistence.*;
 import lombok.Getter;
 
+import java.time.Instant;
 import java.util.*;
 
 @Entity
 @Table(name = "products")
 @Getter
 public class Product {
+
     @EmbeddedId
     private ProductId productId;
 
@@ -19,160 +20,152 @@ public class Product {
     private ProductDetails details;
 
     @Embedded
-    @AttributeOverride(name = "amount", column = @Column(name = "base_price_amount"))
-    @AttributeOverride(name = "currency", column = @Column(name = "base_price_currency"))
+    @AttributeOverrides({
+            @AttributeOverride(name = "amount", column = @Column(name = "base_price_amount", nullable = false)),
+            @AttributeOverride(name = "currency", column = @Column(name = "base_price_currency", nullable = false, length = 3))
+    })
     private Money basePrice;
 
-    private String categoryId;
+    @Embedded
+    @AttributeOverride(name = "value", column = @Column(name = "category_id", nullable = false, length = 36))
+    private CategoryId categoryId;
 
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
     private ProductStatus status;
 
-    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
-    @JoinColumn(name = "product_id")
-    private List<ProductVariant> variants = new ArrayList<>();
+    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private final List<ProductVariant> variants = new ArrayList<>();
 
-    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
-    @JoinColumn(name = "product_id")
-    private List<Review> reviews = new ArrayList<>();
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt;
 
-    @Embedded
-    private ProductStatistics statistics;
-
-    @Column(name = "created_at")
-    private Long createdAt;
-
-    @Column(name = "updated_at")
-    private Long updatedAt;
+    @Column(name = "updated_at", nullable = false)
+    private Instant updatedAt;
 
     protected Product() {
         // for JPA
     }
 
-    // Factory method for creating new product
-    public static Product create(ProductDetails details, Money basePrice,
-                                 String categoryId ) {
+    // ===== Factory =====
+    public static Product create(ProductDetails details, Money basePrice, CategoryId categoryId) {
         Product product = new Product();
         product.productId = ProductId.generate();
-        product.details = details;
-        product.basePrice = basePrice;
-        product.categoryId = categoryId;
+        product.details = requireDetails(details);
+        product.basePrice = requirePrice(basePrice);
+        product.categoryId = requireCategoryId(categoryId);
         product.status = ProductStatus.ACTIVE;
-        product.statistics = new ProductStatistics();
-        product.createdAt = System.currentTimeMillis();
-        product.updatedAt = System.currentTimeMillis();
-
+        product.createdAt = Instant.now();
+        product.updatedAt = product.createdAt;
         return product;
     }
 
-    // Domain methods
+    // ===== Domain methods =====
     public void updateDetails(ProductDetails newDetails) {
-        if (newDetails == null || newDetails.isEmpty()) {
-            throw new IllegalArgumentException("Product details cannot be null or empty");
-        }
-        this.details = newDetails;
-        this.updatedAt = System.currentTimeMillis();
+        this.details = requireDetails(newDetails);
+        touch();
     }
 
     public void updateBasePrice(Money newPrice) {
-        if (newPrice == null || newPrice.isNegative()) {
-            throw new IllegalArgumentException("Price cannot be null or negative");
-        }
-        this.basePrice = newPrice;
-        this.updatedAt = System.currentTimeMillis();
+        this.basePrice = requirePrice(newPrice);
+        touch();
     }
 
-    public void changeCategory(String newCategoryId) {
-        if (newCategoryId == null || newCategoryId.isBlank()) {
-            throw new IllegalArgumentException("Category ID cannot be null or empty");
-        }
-        this.categoryId = newCategoryId;
-        this.updatedAt = System.currentTimeMillis();
+    public void changeCategory(CategoryId newCategoryId) {
+        this.categoryId = requireCategoryId(newCategoryId);
+        touch();
     }
 
     public void activate() {
         if (this.status != ProductStatus.ACTIVE) {
             this.status = ProductStatus.ACTIVE;
-            this.updatedAt = System.currentTimeMillis();
+            touch();
         }
     }
 
     public void deactivate() {
         if (this.status != ProductStatus.INACTIVE) {
             this.status = ProductStatus.INACTIVE;
-            this.updatedAt = System.currentTimeMillis();
+            touch();
         }
     }
 
     public void markOutOfStock() {
         if (this.status != ProductStatus.OUT_OF_STOCK) {
             this.status = ProductStatus.OUT_OF_STOCK;
-            this.updatedAt = System.currentTimeMillis();
+            touch();
         }
     }
 
     public void markInStock() {
-        if (this.status == ProductStatus.OUT_OF_STOCK && this.isInStock()) {
+        if (this.status == ProductStatus.OUT_OF_STOCK && isInStock()) {
             this.status = ProductStatus.ACTIVE;
-            this.updatedAt = System.currentTimeMillis();
+            touch();
         }
     }
 
-    // Variant management - FIXED
-    public ProductVariant createVariant(String sku, Money price, Integer stockQuantity) {
+    // ===== Variant management =====
+    public ProductVariant createVariant(String sku, Money price, int stockQuantity) {
         return createVariant(sku, null, null, null, price, stockQuantity);
     }
 
-    public ProductVariant createVariant(String sku, String size, String color,
-                                        Money price, Integer stockQuantity) {
+    public ProductVariant createVariant(String sku, String size, String color, Money price, int stockQuantity) {
         return createVariant(sku, size, color, null, price, stockQuantity);
     }
 
-    public ProductVariant createVariant(String sku, String size, String color, String material,
-                                        Money price, Integer stockQuantity) {
-        // Check for duplicate SKU
-        if (findVariantBySku(sku).isPresent()) {
-            throw new IllegalArgumentException("Variant with SKU " + sku + " already exists");
+    public ProductVariant createVariant(String sku, String size, String color, String material, Money price, int stockQuantity) {
+        String normalizedSku = requireSku(sku);
+
+        if (findVariantBySku(normalizedSku).isPresent()) {
+            throw new IllegalArgumentException("Variant with SKU " + normalizedSku + " already exists");
         }
 
-        ProductVariant variant = new ProductVariant(sku, size, color, material, price, stockQuantity);
-        variants.add(variant);
-        this.updatedAt = System.currentTimeMillis();
+        ProductVariant variant = ProductVariant.of(normalizedSku, size, color, material, price, stockQuantity);
+        attachVariant(variant);
 
-        // Auto update stock status
+        touch();
         updateStockStatus();
-
         return variant;
     }
 
     public void addVariant(ProductVariant variant) {
-        if (variant == null) {
-            throw new IllegalArgumentException("Variant cannot be null");
+        if (variant == null) throw new IllegalArgumentException("Variant cannot be null");
+
+        String normalizedSku = requireSku(variant.getSku());
+        if (findVariantBySku(normalizedSku).isPresent()) {
+            throw new IllegalArgumentException("Variant with SKU " + normalizedSku + " already exists");
         }
 
-        // Check for duplicate SKU
-        if (findVariantBySku(variant.getSku()).isPresent()) {
-            throw new IllegalArgumentException("Variant with SKU " + variant.getSku() + " already exists");
-        }
-
-        variants.add(variant);
-        this.updatedAt = System.currentTimeMillis();
-
-        // Auto update stock status
+        attachVariant(variant);
+        touch();
         updateStockStatus();
     }
 
     public void removeVariant(String sku) {
-        boolean removed = variants.removeIf(variant -> variant.getSku().equals(sku));
+        String normalizedSku = requireSku(sku);
+
+        boolean removed = false;
+        for (Iterator<ProductVariant> it = variants.iterator(); it.hasNext(); ) {
+            ProductVariant v = it.next();
+            if (normalizedSku.equals(v.getSku())) {
+                v.detach();
+                it.remove();
+                removed = true;
+            }
+        }
         if (removed) {
-            this.updatedAt = System.currentTimeMillis();
+            touch();
             updateStockStatus();
         }
     }
 
     public Optional<ProductVariant> findVariantBySku(String sku) {
+        if (sku == null) return Optional.empty();
+        String normalizedSku = sku.strip();
+        if (normalizedSku.isEmpty()) return Optional.empty();
+
         return variants.stream()
-                .filter(variant -> variant.getSku().equals(sku))
+                .filter(v -> normalizedSku.equals(v.getSku()))
                 .findFirst();
     }
 
@@ -181,7 +174,7 @@ public class Product {
                 .orElseThrow(() -> new IllegalArgumentException("Variant with SKU " + sku + " not found"));
 
         variant.updatePrice(newPrice);
-        this.updatedAt = System.currentTimeMillis();
+        touch();
     }
 
     public void updateVariantStock(String sku, int newStock) {
@@ -189,42 +182,11 @@ public class Product {
                 .orElseThrow(() -> new IllegalArgumentException("Variant with SKU " + sku + " not found"));
 
         variant.updateStock(newStock);
-        this.updatedAt = System.currentTimeMillis();
+        touch();
         updateStockStatus();
     }
 
-    // Review management - FIXED
-    public void addReview(Review review) {
-        if (review == null) {
-            throw new IllegalArgumentException("Review cannot be null");
-        }
-
-        // Check if user already reviewed this product
-        boolean alreadyReviewed = reviews.stream()
-                .anyMatch(r -> r.getUserId().equals(review.getUserId()));
-        if (alreadyReviewed) {
-            throw new IllegalArgumentException("User already reviewed this product");
-        }
-
-        reviews.add(review);
-        statistics.addReview(review.getRating());
-        this.updatedAt = System.currentTimeMillis();
-    }
-
-    public void removeReview(String reviewId) {
-        Optional<Review> reviewToRemove = reviews.stream()
-                .filter(review -> review.getReviewId().equals(reviewId))
-                .findFirst();
-
-        if (reviewToRemove.isPresent()) {
-            Review review = reviewToRemove.get();
-            reviews.remove(review);
-            statistics.removeReview(review.getRating());
-            this.updatedAt = System.currentTimeMillis();
-        }
-    }
-
-    // Business logic
+    // ===== Business logic =====
     public boolean isInStock() {
         return variants.stream().anyMatch(ProductVariant::isInStock);
     }
@@ -233,7 +195,7 @@ public class Product {
         return variants.stream()
                 .filter(ProductVariant::isInStock)
                 .map(ProductVariant::getPrice)
-                .min(Comparator.comparing(Money::getAmount))
+                .min(Comparator.comparing(Money::amount))
                 .orElse(basePrice);
     }
 
@@ -241,22 +203,12 @@ public class Product {
         return variants.stream()
                 .filter(ProductVariant::isInStock)
                 .map(ProductVariant::getPrice)
-                .max(Comparator.comparing(Money::getAmount))
+                .max(Comparator.comparing(Money::amount))
                 .orElse(basePrice);
     }
 
     public int getTotalStock() {
-        return variants.stream()
-                .mapToInt(ProductVariant::getStockQuantity)
-                .sum();
-    }
-
-    public double getAverageRating() {
-        return statistics.getAverageRating();
-    }
-
-    public int getReviewCount() {
-        return statistics.getReviewCount();
+        return variants.stream().mapToInt(ProductVariant::getStockQuantity).sum();
     }
 
     public boolean isActive() {
@@ -271,30 +223,62 @@ public class Product {
         return variants.size();
     }
 
-    // Private helper methods
-    private void updateStockStatus() {
-        if (this.status == ProductStatus.OUT_OF_STOCK && this.isInStock()) {
-            this.markInStock();
-        } else if (this.status == ProductStatus.ACTIVE && !this.isInStock()) {
-            this.markOutOfStock();
-        }
-    }
-
-    // Immutable collections
     public List<ProductVariant> getVariants() {
         return Collections.unmodifiableList(variants);
     }
 
-    public List<Review> getReviews() {
-        return Collections.unmodifiableList(reviews);
+    // ===== Helpers =====
+    private void updateStockStatus() {
+        if (this.status == ProductStatus.OUT_OF_STOCK && isInStock()) {
+            markInStock();
+        } else if (this.status == ProductStatus.ACTIVE && !isInStock()) {
+            markOutOfStock();
+        }
     }
 
+    private void touch() {
+        this.updatedAt = Instant.now();
+    }
+
+    private void attachVariant(ProductVariant variant) {
+        variant.attachTo(this);
+        variants.add(variant);
+    }
+
+    private static ProductDetails requireDetails(ProductDetails details) {
+        if (details == null || details.isEmpty()) {
+            throw new IllegalArgumentException("Product details cannot be null or empty");
+        }
+        return details;
+    }
+
+    private static Money requirePrice(Money price) {
+        if (price == null || price.isNegative()) {
+            throw new IllegalArgumentException("Price cannot be null or negative");
+        }
+        return price;
+    }
+
+    private static CategoryId requireCategoryId(CategoryId categoryId) {
+        if (categoryId == null) {
+            throw new IllegalArgumentException("Category ID cannot be null");
+        }
+        return categoryId;
+    }
+
+    private static String requireSku(String sku) {
+        if (sku == null) throw new IllegalArgumentException("SKU cannot be null");
+        String normalized = sku.strip();
+        if (normalized.isEmpty()) throw new IllegalArgumentException("SKU cannot be empty");
+        return normalized;
+    }
+
+    // ===== equals/hashCode =====
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        Product product = (Product) o;
-        return Objects.equals(productId, product.productId);
+        if (!(o instanceof Product other)) return false;
+        return Objects.equals(productId, other.productId);
     }
 
     @Override
@@ -306,11 +290,10 @@ public class Product {
     public String toString() {
         return "Product{" +
                 "productId=" + productId +
-                ", name=" + details.getName() +
+                ", name=" + (details != null ? details.name() : null) +
                 ", status=" + status +
-                ", categoryId='" + categoryId + '\'' +
+                ", categoryId=" + (categoryId != null ? categoryId.value() : null) +
                 ", variantCount=" + variants.size() +
-                ", reviewCount=" + reviews.size() +
                 '}';
     }
 }

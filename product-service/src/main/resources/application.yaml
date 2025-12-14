@@ -1,3 +1,6 @@
+server:
+  port: 8082
+
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/product_service
@@ -13,36 +16,40 @@ spring:
       pool-name: ProductServicePool
 
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: update
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
         jdbc:
           lob:
             non_contextual_creation: true
     show-sql: true
 
-  sql:
-    init:
-      platform: postgres
-
   cloud:
     discovery:
       enabled: false
-# Logging
+
 logging:
   level:
     com.dang.productservice: DEBUG
     org.hibernate.SQL: DEBUG
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    # chỉ bật cái này khi cần soi parameter
+    # org.hibernate.orm.jdbc.bind: TRACE
 
-# T?t Eureka Client
 eureka:
   client:
     enabled: false
     register-with-eureka: false
     fetch-registry: false
 
+jwt:
+  issuer: identity-service
+  signerKey: ${JWT_SIGNER_KEY}
 
+security:
+  public-paths:
+    - /actuator/health
+    - /actuator/info
+    - /error

@@ -2,72 +2,97 @@ package com.dang.productservice.application.service;
 
 import com.dang.productservice.application.commands.CreateCategoryCommand;
 import com.dang.productservice.application.commands.UpdateCategoryCommand;
+import com.dang.productservice.application.dtos.CategoryResponse;
 import com.dang.productservice.application.exceptions.CategoryNotFoundException;
 import com.dang.productservice.domain.model.entities.Category;
 import com.dang.productservice.domain.model.valueobjects.CategoryId;
 import com.dang.productservice.domain.repository.CategoryRepository;
-import com.dang.productservice.domain.service.CategoryDomainService;
-import com.dang.productservice.infrastructure.util.SlugUtil; // 🔹 THÊM IMPORT NÀY
-
+import com.dang.productservice.domain.shared.SlugUtil;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
+/**
+ * Application service (use-case layer) cho Category.
+ *
+ * Fix LazyInitializationException:
+ * - Không để controller map entity -> DTO ngoài session.
+ * - Trả DTO ngay trong transaction (service) bằng các method *Response().
+ */
 @Service
 @Transactional
 public class CategoryApplicationService {
 
     private final CategoryRepository categoryRepository;
-    private final CategoryDomainService categoryDomainService;
 
-    public CategoryApplicationService(CategoryRepository categoryRepository,
-                                      CategoryDomainService categoryDomainService) {
+    public CategoryApplicationService(CategoryRepository categoryRepository) {
         this.categoryRepository = categoryRepository;
-        this.categoryDomainService = categoryDomainService;
     }
 
     public Category createRootCategory(CreateCategoryCommand command) {
-        // 🔹 Nếu client không gửi slug hoặc gửi rỗng → tự generate từ name
-        String slug = command.getSlug();
-        if (slug == null || slug.trim().isEmpty()) {
-            slug = SlugUtil.toSlug(command.getName());
-        }
+        String name = requireText(command.getName(), "Category name");
+        String slug = normalizeOrGenerateSlug(command.getSlug(), name);
+        ensureSlugNotExists(slug);
 
-        Category category = categoryDomainService.createRootCategory(
-                command.getName(),
-                slug,
-                command.getDescription()
-        );
-
+        Category category = Category.createRoot(name, slug, command.getDescription());
         return categoryRepository.save(category);
     }
 
+    /**
+     * Trả DTO ngay trong transaction để tránh LazyInitializationException
+     * khi controller map entity -> DTO ngoài session.
+     */
+    public CategoryResponse createRootCategoryResponse(CreateCategoryCommand command, int depth) {
+        Category created = createRootCategory(command);
+        return CategoryResponse.from(created, depth);
+    }
 
     public Category createSubCategory(CreateCategoryCommand command) {
-        if (command.getParentId() == null || command.getParentId().trim().isEmpty()) {
-            throw new IllegalArgumentException("Parent ID is required for subcategory");
-        }
+        CategoryId parentId = CategoryId.of(requireText(command.getParentId(), "Parent ID"));
 
-        String slug = command.getSlug();
-        if (slug == null || slug.trim().isEmpty()) {
-            slug = SlugUtil.toSlug(command.getName());
-        }
+        Category parent = categoryRepository.findById(parentId)
+                .orElseThrow(() -> new CategoryNotFoundException("Parent category not found: " + parentId.value()));
 
-        // Chỉ truyền parentId, name, slug, description cho domain service
-        return categoryDomainService.createSubCategory(
-                command.getParentId(),
-                command.getName(),
-                slug,
-                command.getDescription()
-        );
+        String name = requireText(command.getName(), "Category name");
+        String slug = normalizeOrGenerateSlug(command.getSlug(), name);
+        ensureSlugNotExists(slug);
+
+        Category child = Category.createChild(name, slug, command.getDescription(), parent);
+        return categoryRepository.save(child);
+    }
+
+    /**
+     * Trả DTO ngay trong transaction để tránh LazyInitializationException
+     * khi controller map entity -> DTO ngoài session.
+     */
+    public CategoryResponse createSubCategoryResponse(CreateCategoryCommand command, int depth) {
+        Category created = createSubCategory(command);
+        return CategoryResponse.from(created, depth);
+    }
+
+    @Transactional(readOnly = true)
+    public List<CategoryResponse> getRootCategoryResponses() {
+        return categoryRepository.findRootCategories().stream()
+                .map(CategoryResponse::from)
+                .toList();
     }
 
     @Transactional(readOnly = true)
     public Category getCategory(String categoryId) {
-        return categoryRepository.findById(CategoryId.fromString(categoryId))
+        CategoryId id = CategoryId.of(requireText(categoryId, "Category ID"));
+        return categoryRepository.findById(id)
                 .orElseThrow(() -> new CategoryNotFoundException("Category not found: " + categoryId));
+    }
+
+    /**
+     * Trả DTO ngay trong transaction để tránh LazyInitializationException
+     * khi truy cập collection lazy (children).
+     */
+    @Transactional(readOnly = true)
+    public CategoryResponse getCategoryResponse(String categoryId, int depth) {
+        Category category = getCategory(categoryId);
+        return CategoryResponse.from(category, depth);
     }
 
     @Transactional(readOnly = true)
@@ -82,19 +107,28 @@ public class CategoryApplicationService {
 
     @Transactional(readOnly = true)
     public List<Category> getSubcategories(String parentCategoryId) {
-        return categoryRepository.findByParentId(CategoryId.fromString(parentCategoryId));
+        return categoryRepository.findByParentId(CategoryId.of(requireText(parentCategoryId, "Parent Category ID")));
+    }
+
+    /**
+     * Trả DTO list ngay trong transaction để tránh LazyInitializationException.
+     */
+    @Transactional(readOnly = true)
+    public List<CategoryResponse> getSubcategoryResponses(String parentCategoryId, int depth) {
+        return getSubcategories(parentCategoryId).stream()
+                .map(c -> CategoryResponse.from(c, depth))
+                .toList();
     }
 
     @Transactional(readOnly = true)
     public List<Category> getActiveCategories() {
-        return categoryRepository.findAll().stream()
-                .filter(Category::isActive)
-                .collect(Collectors.toList());
+        return categoryRepository.findByActiveTrue();
     }
 
     @Transactional(readOnly = true)
-    public void validateCategoryExists(String categoryId) {
-        if (!categoryRepository.existsById(CategoryId.fromString(categoryId))) {
+    public void assertCategoryExists(String categoryId) {
+        CategoryId id = CategoryId.of(requireText(categoryId, "Category ID"));
+        if (!categoryRepository.existsById(id)) {
             throw new CategoryNotFoundException("Category not found: " + categoryId);
         }
     }
@@ -102,24 +136,37 @@ public class CategoryApplicationService {
     public Category updateCategory(String categoryId, UpdateCategoryCommand command) {
         Category category = getCategory(categoryId);
 
-        if (command.getName() != null) {
-            category.rename(command.getName());
-            // ❗ Tuỳ bạn:
-            // Nếu muốn khi đổi name thì cũng đổi luôn slug (khi client không gửi slug):
-            // if (command.getSlug() == null || command.getSlug().trim().isEmpty()) {
-            //     category.updateSlug(SlugUtil.toSlug(command.getName()));
-            // }
+        String newName = pick(command.getName());
+        if (newName != null) {
+            category.rename(newName);
         }
 
-        if (command.getSlug() != null) {
-            category.updateSlug(command.getSlug());
+        String newDescription = pick(command.getDescription());
+        if (newDescription != null) {
+            category.updateDescription(newDescription);
         }
 
-        if (command.getDescription() != null) {
-            category.updateDescription(command.getDescription());
+        String newSlug = pick(command.getSlug());
+        if (newSlug != null) {
+            String normalizedSlug = SlugUtil.normalize(newSlug);
+            if (normalizedSlug == null) {
+                throw new IllegalArgumentException("Invalid slug");
+            }
+            if (!normalizedSlug.equals(category.getSlug()) && categoryRepository.existsBySlug(normalizedSlug)) {
+                throw new IllegalArgumentException("Category slug already exists: " + normalizedSlug);
+            }
+            category.updateSlug(normalizedSlug);
         }
 
         return categoryRepository.save(category);
+    }
+
+    /**
+     * Trả DTO ngay trong transaction để tránh LazyInitializationException.
+     */
+    public CategoryResponse updateCategoryResponse(String categoryId, UpdateCategoryCommand command, int depth) {
+        Category updated = updateCategory(categoryId, command);
+        return CategoryResponse.from(updated, depth);
     }
 
     public void activateCategory(String categoryId) {
@@ -135,8 +182,47 @@ public class CategoryApplicationService {
     }
 
     public void deleteCategory(String categoryId) {
-        Category category = getCategory(categoryId);
-        categoryDomainService.validateCanDelete(category);
-        categoryRepository.deleteById(category.getId());
+        CategoryId id = CategoryId.of(requireText(categoryId, "Category ID"));
+
+        if (categoryRepository.hasProducts(id)) {
+            throw new IllegalStateException("Cannot delete category because it has products: " + categoryId);
+        }
+        if (categoryRepository.hasActiveSubcategories(id)) {
+            throw new IllegalStateException("Cannot delete category because it has active subcategories: " + categoryId);
+        }
+
+        categoryRepository.deleteById(id);
+    }
+
+    // ===== Helpers =====
+
+    private void ensureSlugNotExists(String slug) {
+        if (categoryRepository.existsBySlug(slug)) {
+            throw new IllegalArgumentException("Category slug already exists: " + slug);
+        }
+    }
+
+    private static String normalizeOrGenerateSlug(String rawSlug, String name) {
+        String normalized = SlugUtil.normalize(rawSlug);
+        if (normalized != null) return normalized;
+
+        String generated = SlugUtil.generateFromName(name);
+        if (generated == null) {
+            throw new IllegalArgumentException("Cannot generate slug from empty name");
+        }
+        return generated;
+    }
+
+    private static String requireText(String value, String fieldName) {
+        if (value == null) throw new IllegalArgumentException(fieldName + " cannot be null");
+        String v = value.strip();
+        if (v.isEmpty()) throw new IllegalArgumentException(fieldName + " cannot be blank");
+        return v;
+    }
+
+    private static String pick(String value) {
+        if (value == null) return null;
+        String v = value.strip();
+        return v.isEmpty() ? null : v;
     }
 }

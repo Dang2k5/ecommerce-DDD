@@ -5,123 +5,103 @@ import com.dang.productservice.application.commands.UpdateCategoryCommand;
 import com.dang.productservice.application.dtos.CategoryResponse;
 import com.dang.productservice.application.service.CategoryApplicationService;
 import jakarta.validation.Valid;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.util.UriComponentsBuilder;
 
+import java.net.URI;
 import java.util.List;
 
+@Validated
 @RestController
 @RequestMapping("/api/categories")
 public class CategoryController {
 
-    private final CategoryApplicationService categoryApplicationService;
+    private final CategoryApplicationService categoryApp;
 
-    public CategoryController(CategoryApplicationService categoryApplicationService) {
-        this.categoryApplicationService = categoryApplicationService;
+    public CategoryController(CategoryApplicationService categoryApp) {
+        this.categoryApp = categoryApp;
     }
 
-    // ====== CREATE ======
-
+    // ===== CREATE =====
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     @PostMapping("/root")
     public ResponseEntity<CategoryResponse> createRootCategory(
-            @RequestBody @Valid CreateCategoryCommand command) {
+            @RequestBody @Valid CreateCategoryCommand command,
+            UriComponentsBuilder uriBuilder
+    ) {
+        // Map DTO bên trong transaction (service) để tránh LazyInitializationException
+        var response = categoryApp.createRootCategoryResponse(command, 5);
 
-        var category = categoryApplicationService.createRootCategory(command);
-        // CategoryResponse.from() sẽ tự map subcategories (lúc này thường là list rỗng)
-        return ResponseEntity
-                .status(HttpStatus.CREATED)
-                .body(CategoryResponse.from(category));
+        URI location = uriBuilder.path("/api/categories/{id}")
+                .buildAndExpand(response.getCategoryId())
+                .toUri();
+
+        return ResponseEntity.created(location).body(response);
     }
-
-    @PostMapping("/subcategory")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    @PostMapping("/{parentId}/children")
     public ResponseEntity<CategoryResponse> createSubCategory(
-            @RequestBody @Valid CreateCategoryCommand command) {
+            @PathVariable String parentId,
+            @RequestBody @Valid CreateCategoryCommand command,
+            UriComponentsBuilder uriBuilder
+    ) {
+        command.setParentId(parentId);
 
-        var category = categoryApplicationService.createSubCategory(command);
-        return ResponseEntity
-                .status(HttpStatus.CREATED)
-                .body(CategoryResponse.from(category));
+        var response = categoryApp.createSubCategoryResponse(command, 5);
+
+        URI location = uriBuilder.path("/api/categories/{id}")
+                .buildAndExpand(response.getCategoryId())
+                .toUri();
+
+        return ResponseEntity.created(location).body(response);
     }
 
-    // ====== READ ======
-
-    /**
-     * Lấy toàn bộ category.
-     * Nếu CategoryApplicationService.getAllCategories() trả về entity đã có
-     * quan hệ cha–con (subcategories), thì CategoryResponse.from() sẽ trả
-     * về luôn cây danh mục.
-     */
-    @GetMapping
-    public ResponseEntity<List<CategoryResponse>> getAllCategories() {
-        var categories = categoryApplicationService.getAllCategories();
-        var responses = categories.stream()
-                .map(CategoryResponse::from)
-                .toList();
-        return ResponseEntity.ok(responses);
-    }
-
-    /**
-     * Lấy chỉ các root categories (mỗi root kèm theo subtree).
-     */
-    @GetMapping("/roots")
-    public ResponseEntity<List<CategoryResponse>> getRootCategories() {
-        var categories = categoryApplicationService.getRootCategories();
-        var responses = categories.stream()
-                .map(CategoryResponse::from)
-                .toList();
-        return ResponseEntity.ok(responses);
-    }
-
-    /**
-     * Lấy 1 category (kèm subcategories nếu JPA load).
-     */
+    // ===== READ =====
     @GetMapping("/{categoryId}")
     public ResponseEntity<CategoryResponse> getCategory(@PathVariable String categoryId) {
-        var category = categoryApplicationService.getCategory(categoryId);
-        return ResponseEntity.ok(CategoryResponse.from(category));
+        return ResponseEntity.ok(categoryApp.getCategoryResponse(categoryId, 5));
     }
 
-    /**
-     * Lấy riêng danh sách subcategories (1 level) của categoryId.
-     */
-    @GetMapping("/{categoryId}/subcategories")
+    @GetMapping("/roots")
+    public ResponseEntity<List<CategoryResponse>> getRootCategories() {
+        return ResponseEntity.ok(categoryApp.getRootCategoryResponses());
+    }
+
+    @GetMapping("/{categoryId}/children")
     public ResponseEntity<List<CategoryResponse>> getSubcategories(@PathVariable String categoryId) {
-        var subcategories = categoryApplicationService.getSubcategories(categoryId);
-        var responses = subcategories.stream()
-                .map(CategoryResponse::from)
-                .toList();
-        return ResponseEntity.ok(responses);
+        return ResponseEntity.ok(categoryApp.getSubcategoryResponses(categoryId, 1));
     }
 
-    // ====== UPDATE ======
-
+    // ===== UPDATE =====
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     @PutMapping("/{categoryId}")
     public ResponseEntity<CategoryResponse> updateCategory(
             @PathVariable String categoryId,
-            @RequestBody @Valid UpdateCategoryCommand command) {
-
-        var category = categoryApplicationService.updateCategory(categoryId, command);
-        return ResponseEntity.ok(CategoryResponse.from(category));
+            @RequestBody @Valid UpdateCategoryCommand command
+    ) {
+        return ResponseEntity.ok(categoryApp.updateCategoryResponse(categoryId, command, 5));
     }
 
-    // ====== DELETE / ACTIVATE / DEACTIVATE ======
-
+    // ===== DELETE / STATUS =====
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     @DeleteMapping("/{categoryId}")
     public ResponseEntity<Void> deleteCategory(@PathVariable String categoryId) {
-        categoryApplicationService.deleteCategory(categoryId);
+        categoryApp.deleteCategory(categoryId);
         return ResponseEntity.noContent().build();
     }
-
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     @PostMapping("/{categoryId}/activate")
     public ResponseEntity<Void> activateCategory(@PathVariable String categoryId) {
-        categoryApplicationService.activateCategory(categoryId);
-        return ResponseEntity.ok().build();
+        categoryApp.activateCategory(categoryId);
+        return ResponseEntity.noContent().build();
     }
-
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     @PostMapping("/{categoryId}/deactivate")
     public ResponseEntity<Void> deactivateCategory(@PathVariable String categoryId) {
-        categoryApplicationService.deactivateCategory(categoryId);
-        return ResponseEntity.ok().build();
+        categoryApp.deactivateCategory(categoryId);
+        return ResponseEntity.noContent().build();
     }
 }

@@ -1,0 +1,100 @@
+version: "3.8"
+
+services:
+  identity-postgres:
+    image: postgres:16
+    container_name: identity_postgres
+    environment:
+      POSTGRES_DB: identity_service
+      POSTGRES_USER: identity_user
+      POSTGRES_PASSWORD: 123456
+    ports:
+      - "5432:5432"
+    volumes:
+      - identity_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U identity_user -d identity_service"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  product-postgres:
+    image: postgres:16
+    container_name: product_postgres
+    environment:
+      POSTGRES_DB: product_service
+      POSTGRES_USER: product_user
+      POSTGRES_PASSWORD: 123456
+    ports:
+      - "5433:5432"
+    volumes:
+      - product_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U product_user -d product_service"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7
+    container_name: shared_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  identity-service:
+    build:
+      context: ./identity-service
+      dockerfile: Dockerfile
+    container_name: identity_service
+    ports:
+      - "8081:8081"
+    environment:
+      # DB (trong docker network không dùng localhost)
+      SPRING_DATASOURCE_URL: jdbc:postgresql://identity-postgres:5432/identity_service?currentSchema=public
+      SPRING_DATASOURCE_USERNAME: identity_user
+      SPRING_DATASOURCE_PASSWORD: 123456
+
+      # Redis
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+
+      # JWT (DÙNG CHUNG VỚI PRODUCT)
+      JWT_ISSUER: identity-service
+      JWT_SIGNER_KEY: ${JWT_SIGNER_KEY}
+    depends_on:
+      identity-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  product-service:
+    build:
+      context: ./product-service
+      dockerfile: Dockerfile
+    container_name: product_service
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://product-postgres:5432/product_service
+      SPRING_DATASOURCE_USERNAME: product_user
+      SPRING_DATASOURCE_PASSWORD: 123456
+
+      # JWT verifier phải dùng đúng issuer + signer key của identity-service
+      JWT_ISSUER: identity-service
+      JWT_SIGNER_KEY: ${JWT_SIGNER_KEY}
+    depends_on:
+      product-postgres:
+        condition: service_healthy
+      identity-service:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  identity_pg_data:
+  product_pg_data:

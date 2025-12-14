@@ -1,0 +1,29 @@
+server:
+  port: 8081
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/identity_service?currentSchema=public
+    username: identity_user
+    password: 123456
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: true
+        show_sql: false
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+jwt:
+  issuer: identity-service
+  signerKey: ${JWT_SIGNER_KEY:9h1KQp9pV6wZc2yN4sT8mX1rL7aB3dE5fG0jH2kL8mN6pQ4rS1tU7vW9xY3zA5c0}
+  accessTtlSeconds: 900
+  refreshTtlSeconds: 2592000

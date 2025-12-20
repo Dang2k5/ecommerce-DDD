@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   identity-postgres:
     image: postgres:16
@@ -34,6 +32,73 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+  customer-postgres:
+    image: postgres:16
+    container_name: customer_postgres
+    environment:
+      POSTGRES_DB: customer_service
+      POSTGRES_USER: customer_user
+      POSTGRES_PASSWORD: 123456
+    ports:
+      - "5437:5432"
+    volumes:
+      - customer_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U customer_user -d customer_service" ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  payment-postgres:
+    image: postgres:16
+    container_name: payment_postgres
+    environment:
+      POSTGRES_DB: payment_service
+      POSTGRES_USER: payment_user
+      POSTGRES_PASSWORD: 123456
+    ports:
+      - "5434:5432"
+    volumes:
+      - payment_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U payment_user -d payment_service" ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  inventory-postgres:
+    image: postgres:16
+    container_name: inventory_postgres
+    environment:
+      POSTGRES_DB: inventory_service
+      POSTGRES_USER: inventory_user
+      POSTGRES_PASSWORD: 123456
+    ports:
+      - "5435:5432"
+    volumes:
+      - inventory_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U inventory_user -d inventory_service" ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  order-postgres:
+    image: postgres:16
+    container_name: order_postgres
+    environment:
+      POSTGRES_DB: order_service
+      POSTGRES_USER: order_user
+      POSTGRES_PASSWORD: 123456
+    ports:
+      - "5436:5432"
+    volumes:
+      - order_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U order_user -d order_service" ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
   redis:
     image: redis:7
@@ -46,6 +111,37 @@ services:
       timeout: 3s
       retries: 30
 
+  # Kafka (KRaft, 2 listeners: host + docker network)
+  kafka:
+    image: apache/kafka:4.1.1
+    container_name: shared_kafka
+    ports:
+      - "19092:9092"   # host/local -> vào container 9092
+      - "19093:9093"   # host/local -> vào container 9093 (nếu cần)
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@shared_kafka:9094
+
+      # single-node must be 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+
+      # listeners are container ports
+      KAFKA_LISTENERS: PLAINTEXT://:9092,PLAINTEXT_INTERNAL://:9093,CONTROLLER://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:19092,PLAINTEXT_INTERNAL://shared_kafka:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    restart: unless-stopped
+
+
   identity-service:
     build:
       context: ./identity-service
@@ -54,16 +150,13 @@ services:
     ports:
       - "8081:8081"
     environment:
-      # DB (trong docker network không dùng localhost)
       SPRING_DATASOURCE_URL: jdbc:postgresql://identity-postgres:5432/identity_service?currentSchema=public
       SPRING_DATASOURCE_USERNAME: identity_user
       SPRING_DATASOURCE_PASSWORD: 123456
 
-      # Redis
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
 
-      # JWT (DÙNG CHUNG VỚI PRODUCT)
       JWT_ISSUER: identity-service
       JWT_SIGNER_KEY: ${JWT_SIGNER_KEY}
     depends_on:
@@ -85,7 +178,6 @@ services:
       SPRING_DATASOURCE_USERNAME: product_user
       SPRING_DATASOURCE_PASSWORD: 123456
 
-      # JWT verifier phải dùng đúng issuer + signer key của identity-service
       JWT_ISSUER: identity-service
       JWT_SIGNER_KEY: ${JWT_SIGNER_KEY}
     depends_on:
@@ -95,6 +187,156 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  customer-service:
+    build:
+      context: ./customer-service
+      dockerfile: Dockerfile
+    container_name: customer_service
+    depends_on:
+      customer-postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      identity-service:
+        condition: service_started
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://customer-postgres:5432/customer_service
+      SPRING_DATASOURCE_USERNAME: customer_user
+      SPRING_DATASOURCE_PASSWORD: 123456
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9093
+      JWT_ISSUER: identity-service
+      JWT_SIGNER_KEY: ${JWT_SIGNER_KEY}
+    ports:
+      - "8083:8083"
+    restart: unless-stopped
+
+  payment-service:
+    build:
+      context: ./payment-service
+      dockerfile: Dockerfile
+    container_name: payment_service
+    ports:
+      - "8086:8086"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://payment-postgres:5432/payment_service
+      SPRING_DATASOURCE_USERNAME: payment_user
+      SPRING_DATASOURCE_PASSWORD: 123456
+
+      # QUAN TRỌNG: service chạy trong docker -> dùng listener internal
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9093
+    depends_on:
+      payment-postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    restart: unless-stopped
+
+  inventory-service:
+    build:
+      context: ./inventory-service
+      dockerfile: Dockerfile
+    container_name: inventory_service
+    ports:
+      - "8085:8085"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://inventory-postgres:5432/inventory_service
+      SPRING_DATASOURCE_USERNAME: inventory_user
+      SPRING_DATASOURCE_PASSWORD: 123456
+
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9093
+    depends_on:
+      inventory-postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    restart: unless-stopped
+
+  order-service:
+    build:
+      context: ./order-service
+      dockerfile: Dockerfile
+    container_name: order_service
+    ports:
+      - "8084:8084"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://order-postgres:5432/order_service
+      SPRING_DATASOURCE_USERNAME: order_user
+      SPRING_DATASOURCE_PASSWORD: 123456
+
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9093
+
+      # nếu order-service cần gọi identity/product bằng http nội bộ docker:
+      # IDENTITY_BASE_URL: http://identity-service:8081
+      # PRODUCT_BASE_URL: http://product-service:8082
+    depends_on:
+      order-postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      inventory-service:
+        condition: service_started
+      payment-service:
+        condition: service_started
+    restart: unless-stopped
+
+  kong-db:
+    image: postgres:16
+    container_name: kong_db
+    environment:
+      POSTGRES_DB: kong
+      POSTGRES_USER: kong
+      POSTGRES_PASSWORD: kong
+    volumes:
+      - kong_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U kong -d kong" ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  kong-migrations:
+    image: kong:3.7
+    container_name: kong_migrations
+    command: kong migrations bootstrap
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-db
+      KONG_PG_DATABASE: kong
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: kong
+    depends_on:
+      kong-db:
+        condition: service_healthy
+    restart: on-failure
+
+  kong:
+    image: kong:3.7
+    container_name: kong
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-db
+      KONG_PG_DATABASE: kong
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: kong
+
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+
+      # GUI quản trị
+      KONG_ADMIN_GUI_URL: http://localhost:8002
+      KONG_ADMIN_GUI_LISTEN: 0.0.0.0:8002
+    ports:
+      - "8000:8000" # proxy
+      - "8001:8001" # admin api
+      - "8002:8002" # manager gui
+    depends_on:
+      - kong-migrations
+    restart: unless-stopped
 volumes:
   identity_pg_data:
   product_pg_data:
+  payment_pg_data:
+  inventory_pg_data:
+  order_pg_data:
+  customer_pg_data:
+  kong_pg_data:

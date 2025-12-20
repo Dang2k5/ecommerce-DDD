@@ -2,10 +2,13 @@ server:
   port: 8082
 
 spring:
+  application:
+      name: product-service
+
   datasource:
-    url: jdbc:postgresql://localhost:5432/product_service
-    username: product_user
-    password: 123456
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/product_service}
+    username: ${SPRING_DATASOURCE_USERNAME:product_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:123456}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 20
@@ -37,12 +40,6 @@ logging:
     org.hibernate.SQL: DEBUG
     # chỉ bật cái này khi cần soi parameter
     # org.hibernate.orm.jdbc.bind: TRACE
-
-eureka:
-  client:
-    enabled: false
-    register-with-eureka: false
-    fetch-registry: false
 
 jwt:
   issuer: identity-service

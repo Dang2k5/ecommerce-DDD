@@ -2,10 +2,13 @@ server:
   port: 8081
 
 spring:
+  application:
+    name: identity-service
+
   datasource:
-    url: jdbc:postgresql://localhost:5432/identity_service?currentSchema=public
-    username: identity_user
-    password: 123456
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/identity_service}
+    username: ${SPRING_DATASOURCE_USERNAME:identity_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:123456}
     driver-class-name: org.postgresql.Driver
 
   jpa:

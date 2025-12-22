@@ -6,22 +6,28 @@
 FROM eclipse-temurin:25-jdk AS build
 WORKDIR /workspace
 
-# Copy maven wrapper + pom trước để cache dependency tốt hơn
-COPY .mvn/ .mvn/
-COPY mvnw pom.xml ./
+# ===== 1. Build & install saga-messages =====
+COPY saga-messages /workspace/saga-messages
+WORKDIR /workspace/saga-messages
 
-# Cấp quyền chạy mvnw
+RUN --mount=type=cache,target=/root/.m2 \
+    chmod +x mvnw && ./mvnw -Dmaven.test.skip=true clean install
+
+# ===== 2. Build order-service =====
+WORKDIR /workspace/order-service
+
+COPY order-service/mvnw order-service/pom.xml ./
+COPY order-service/.mvn .mvn
+
 RUN chmod +x mvnw
 
-# Tải dependencies trước (tận dụng cache; BuildKit sẽ cache ~/.m2)
 RUN --mount=type=cache,target=/root/.m2 \
-    ./mvnw -q -DskipTests dependency:go-offline
+    ./mvnw -Dmaven.test.skip=true dependency:go-offline
 
-# Copy source code rồi build
-COPY src/ src/
+COPY order-service/. .
 
 RUN --mount=type=cache,target=/root/.m2 \
-    ./mvnw -q -DskipTests package
+    ./mvnw -Dmaven.test.skip=true clean package
 
 ############################
 # 2) RUNTIME STAGE
@@ -29,25 +35,16 @@ RUN --mount=type=cache,target=/root/.m2 \
 FROM eclipse-temurin:25-jre
 WORKDIR /app
 
-# Set timezone (đúng timezone bạn đang dùng)
 ENV TZ=Asia/Bangkok
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:InitialRAMPercentage=25"
 
-# Tạo user không phải root để chạy trên K8s an toàn hơn
 RUN addgroup --system --gid 10001 app \
  && adduser  --system --uid 10001 --ingroup app --home /app --disabled-password app
 
-# Copy jar từ build stage
-COPY --from=build /workspace/target/*.jar /app/app.jar
+COPY --from=build /workspace/order-service/target/*.jar /app/app.jar
 
-# Fix ownership
 RUN chown -R app:app /app
-
 USER 10001:10001
 
-# Order-service của bạn chạy port 8084 (theo application.yaml)
 EXPOSE 8084
-
-# K8s sẽ inject env (DB, Kafka, JWT_SIGNER_KEY...) -> để JAVA_OPTS mở rộng khi cần
-ENV JAVA_OPTS=""
-
-ENTRYPOINT ["sh","-c","java $JAVA_OPTS -jar /app/app.jar"]
+ENTRYPOINT ["java","-jar","/app/app.jar"]

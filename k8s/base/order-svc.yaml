@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations: {}
+  name: order-service
+  namespace: ecommerce
+spec:
+  clusterIP: 10.108.98.26
+  clusterIPs:
+    - 10.108.98.26
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+    - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+    - name: http
+      port: 8084
+      protocol: TCP
+      targetPort: 8084
+  selector:
+    app: order-service
+  sessionAffinity: None
+  type: ClusterIP

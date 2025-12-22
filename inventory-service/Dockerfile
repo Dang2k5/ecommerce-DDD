@@ -1,57 +1,50 @@
-# syntax=docker/dockerfile:1.6
+# syntax=docker/dockerfile:1.7
 
 ############################
-# 1) Build stage
+# 1) BUILD STAGE
 ############################
 FROM eclipse-temurin:25-jdk AS build
 WORKDIR /workspace
 
-# Copy maven wrapper + pom trước để cache dependency tốt hơn
-COPY .mvn/ .mvn/
-COPY mvnw pom.xml ./
+# ===== 1. Build & install saga-messages =====
+COPY saga-messages /workspace/saga-messages
+WORKDIR /workspace/saga-messages
+
+RUN --mount=type=cache,target=/root/.m2 \
+    chmod +x mvnw && ./mvnw -Dmaven.test.skip=true clean install
+
+# ===== 2. Build inventory-service =====
+WORKDIR /workspace/inventory-service
+
+COPY inventory-service/mvnw inventory-service/pom.xml ./
+COPY inventory-service/.mvn .mvn
+
 RUN chmod +x mvnw
 
-# (BuildKit cache) Nếu CI của bạn chưa bật BuildKit thì dòng --mount sẽ bị bỏ qua theo cách bạn build.
 RUN --mount=type=cache,target=/root/.m2 \
-    ./mvnw -q -DskipTests dependency:go-offline
+    ./mvnw -Dmaven.test.skip=true dependency:go-offline
 
-# Copy source sau cùng (để đổi code không invalidate cache dependency)
-COPY src/ src/
+COPY inventory-service/. .
 
-# Build jar
 RUN --mount=type=cache,target=/root/.m2 \
-    ./mvnw -q -DskipTests package
-
-# Extract layers (Spring Boot layertools)
-# Spring Boot 4 vẫn hỗ trợ jarmode=tools (layertools)
-RUN mkdir -p /layers && \
-    java -Djarmode=tools -jar target/*.jar extract --layers --destination /layers
-
+    ./mvnw -Dmaven.test.skip=true clean package
 
 ############################
-# 2) Runtime stage
+# 2) RUNTIME STAGE
 ############################
-FROM eclipse-temurin:25-jre AS runtime
+FROM eclipse-temurin:25-jre
 WORKDIR /app
 
-# Tạo user non-root (chuẩn deploy K8s)
-RUN groupadd -g 10001 app && \
-    useradd  -u 10001 -g app -s /sbin/nologin -m app
+ENV TZ=Asia/Bangkok
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:InitialRAMPercentage=25"
 
-# Copy extracted layers để tối ưu cache/push image
-COPY --from=build /layers/dependencies/ /app/
-COPY --from=build /layers/snapshot-dependencies/ /app/
-COPY --from=build /layers/spring-boot-loader/ /app/
-COPY --from=build /layers/application/ /app/
+RUN addgroup --system --gid 10001 app \
+ && adduser  --system --uid 10001 --ingroup app --home /app --disabled-password app
 
-# Port theo application.yaml
-EXPOSE 8085
+COPY --from=build /workspace/inventory-service/target/*.jar /app/app.jar
 
-# JVM opts có thể override qua env trong K8s (Deployment env)
-# Ví dụ: JAVA_OPTS: "-Xms256m -Xmx512m"
-ENV JAVA_OPTS=""
-
+RUN chown -R app:app /app
 USER 10001:10001
 
-# Run theo cơ chế launcher của Spring Boot (khi đã extract layers)
-ENTRYPOINT ["sh","-c","exec java $JAVA_OPTS org.springframework.boot.loader.launch.JarLauncher"]
+EXPOSE 8085
+ENTRYPOINT ["java","-jar","/app/app.jar"]

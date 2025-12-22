@@ -14,16 +14,16 @@ COPY .mvn .mvn
 COPY pom.xml ./
 
 # Cache Maven dependencies (rất lợi khi build trên CI)
-RUN chmod +x mvnw && \
-    --mount=type=cache,target=/root/.m2 \
-    ./mvnw -DskipTests dependency:go-offline
+# NOTE: dùng -Dmaven.test.skip=true để KHÔNG compile test luôn (tránh lỗi thiếu dependency test)
+RUN --mount=type=cache,target=/root/.m2 \
+    chmod +x mvnw && ./mvnw -Dmaven.test.skip=true dependency:go-offline
 
-# Copy source sau cùng
-COPY src ./src
+# Copy toàn bộ source sau cùng (an toàn hơn COPY src)
+COPY . .
 
 # Build jar
 RUN --mount=type=cache,target=/root/.m2 \
-    ./mvnw -DskipTests package
+    ./mvnw -Dmaven.test.skip=true clean package
 
 
 ##
@@ -44,10 +44,11 @@ RUN chown -R app:app /app
 
 USER app
 
+# EXPOSE không bắt buộc, nhưng để đúng service port (product bạn đang dùng 8082)
 EXPOSE 8082
 
-# K8s có thể set JAVA_TOOL_OPTIONS (khuyến nghị) hoặc SPRING_* env tuỳ ý
+# K8s có thể set JAVA_TOOL_OPTIONS / JAVA_OPTS tuỳ ý
 ENV JAVA_TOOL_OPTIONS=""
 
-# Exec form (không dùng sh -c) để nhận signal tốt (SIGTERM) trong K8s
+# Exec form để nhận SIGTERM tốt trong K8s
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

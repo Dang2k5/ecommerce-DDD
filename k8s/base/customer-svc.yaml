@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations: {}
+  name: customer-service
+  namespace: ecommerce
+spec:
+  clusterIP: 10.107.227.94
+  clusterIPs:
+    - 10.107.227.94
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+    - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+    - name: http
+      port: 8083
+      protocol: TCP
+      targetPort: 8083
+  selector:
+    app: customer-service
+  sessionAffinity: None
+  type: ClusterIP

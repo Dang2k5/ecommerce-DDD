@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations: {}
+  name: identity-service
+  namespace: ecommerce
+spec:
+  clusterIP: 10.100.65.0
+  clusterIPs:
+    - 10.100.65.0
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+    - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+    - name: http
+      port: 8081
+      protocol: TCP
+      targetPort: 8081
+  selector:
+    app: identity-service
+  sessionAffinity: None
+  type: ClusterIP

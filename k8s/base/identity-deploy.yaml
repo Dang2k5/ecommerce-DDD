@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: "15"
+  name: identity-service
+  namespace: ecommerce
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: identity-service
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: "2025-12-21T03:18:05+07:00"
+      labels:
+        app: identity-service
+    spec:
+      containers:
+        - env:
+            - name: SERVER_PORT
+              value: "8081"
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://pg-postgresql:5432/identity_service
+            - name: SPRING_DATASOURCE_USERNAME
+              value: ecom_user
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: "123456"
+            - name: SPRING_DATA_REDIS_HOST
+              value: redis-master
+            - name: SPRING_DATA_REDIS_PORT
+              value: "6379"
+            - name: JWT_SIGNER_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: JWT_SIGNER_KEY
+                  name: identity-jwt
+            - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+              value: update
+          image: identity-service
+          imagePullPolicy: IfNotPresent
+          name: identity-service
+          ports:
+            - containerPort: 8081
+              protocol: TCP
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30

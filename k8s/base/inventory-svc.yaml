@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations: {}
+  name: inventory-service
+  namespace: ecommerce
+spec:
+  clusterIP: 10.111.162.207
+  clusterIPs:
+    - 10.111.162.207
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+    - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+    - name: http
+      port: 8085
+      protocol: TCP
+      targetPort: 8085
+  selector:
+    app: inventory-service
+  sessionAffinity: None
+  type: ClusterIP

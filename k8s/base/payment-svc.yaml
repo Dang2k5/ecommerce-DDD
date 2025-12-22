@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations: {}
+  name: payment-service
+  namespace: ecommerce
+spec:
+  clusterIP: 10.103.113.238
+  clusterIPs:
+    - 10.103.113.238
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+    - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+    - name: http
+      port: 8086
+      protocol: TCP
+      targetPort: 8086
+  selector:
+    app: payment-service
+  sessionAffinity: None
+  type: ClusterIP

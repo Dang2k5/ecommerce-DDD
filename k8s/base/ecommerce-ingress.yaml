@@ -1,0 +1,54 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    konghq.com/strip-path: "false"
+  name: ecommerce-ingress
+  namespace: ecommerce
+spec:
+  ingressClassName: kong
+  rules:
+    - http:
+        paths:
+          - backend:
+              service:
+                name: identity-service
+                port:
+                  number: 8081
+            path: /api/auth
+            pathType: Prefix
+          - backend:
+              service:
+                name: product-service
+                port:
+                  number: 8082
+            path: /api/products
+            pathType: Prefix
+          - backend:
+              service:
+                name: customer-service
+                port:
+                  number: 8083
+            path: /api/customers
+            pathType: Prefix
+          - backend:
+              service:
+                name: order-service
+                port:
+                  number: 8084
+            path: /api/orders
+            pathType: Prefix
+          - backend:
+              service:
+                name: inventory-service
+                port:
+                  number: 8085
+            path: /api/inventory
+            pathType: Prefix
+          - backend:
+              service:
+                name: payment-service
+                port:
+                  number: 8086
+            path: /api/payments
+            pathType: Prefix

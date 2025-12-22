@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations: {}
+  name: product-service
+  namespace: ecommerce
+spec:
+  clusterIP: 10.105.30.175
+  clusterIPs:
+    - 10.105.30.175
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+    - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+    - name: http
+      port: 8082
+      protocol: TCP
+      targetPort: 8082
+  selector:
+    app: product-service
+  sessionAffinity: None
+  type: ClusterIP

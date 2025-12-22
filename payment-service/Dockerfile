@@ -1,56 +1,51 @@
-# syntax=docker/dockerfile:1.6
+# syntax=docker/dockerfile:1.7
 
-############################################
-# Build stage (JDK 25 + Maven Wrapper)
-############################################
-ARG JAVA_VERSION=25
-FROM eclipse-temurin:${JAVA_VERSION}-jdk AS build
+############################
+# 1) BUILD STAGE
+############################
+FROM eclipse-temurin:25-jdk AS build
+WORKDIR /workspace
 
+# ===== 1. Build & install saga-messages =====
+COPY saga-messages /workspace/saga-messages
+WORKDIR /workspace/saga-messages
+
+RUN --mount=type=cache,target=/root/.m2 \
+    chmod +x mvnw && ./mvnw -Dmaven.test.skip=true clean install
+
+# ===== 2. Build payment-service =====
+WORKDIR /workspace/payment-service
+
+COPY payment-service/mvnw payment-service/pom.xml ./
+COPY payment-service/.mvn .mvn
+
+RUN chmod +x mvnw
+
+RUN --mount=type=cache,target=/root/.m2 \
+    ./mvnw -Dmaven.test.skip=true dependency:go-offline
+
+COPY payment-service/. .
+
+RUN --mount=type=cache,target=/root/.m2 \
+    ./mvnw -Dmaven.test.skip=true clean package
+
+############################
+# 2) RUNTIME STAGE
+############################
+FROM eclipse-temurin:25-jre
 WORKDIR /app
 
-# 1) Copy wrapper + pom trước để cache dependency
-COPY .mvn/ .mvn/
-COPY mvnw pom.xml ./
-RUN chmod +x mvnw \
- && ./mvnw -q -DskipTests dependency:go-offline
+ENV TZ=Asia/Bangkok
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:InitialRAMPercentage=25"
 
-# 2) Copy source sau
-COPY src/ src/
+# Non-root user (chuẩn K8s)
+RUN addgroup --system --gid 10001 app \
+ && adduser  --system --uid 10001 --ingroup app --home /app --disabled-password app
 
-# 3) Build jar
-RUN ./mvnw -q -DskipTests package
+COPY --from=build /workspace/payment-service/target/*.jar /app/app.jar
 
-# 4) Chuẩn hoá tên jar để runtime COPY không dính nhiều file (*-original.jar)
-RUN set -eux; \
-    JAR="$(ls -1 target/*.jar | grep -v 'original' | head -n 1)"; \
-    test -n "$JAR"; \
-    cp "$JAR" /app/app.jar
+RUN chown -R app:app /app
+USER 10001:10001
 
-
-############################################
-# Runtime stage (JRE 25, non-root)
-############################################
-FROM eclipse-temurin:${JAVA_VERSION}-jre
-
-WORKDIR /app
-
-# Chạy non-root cho K8s
-RUN useradd -m -u 10001 appuser
-USER 10001
-
-# Copy jar đã chuẩn hoá
-COPY --from=build /app/app.jar /app/app.jar
-
-# Spring Boot port trong application.yaml của bạn là 8086
 EXPOSE 8086
-
-# Gợi ý: truyền cấu hình qua ENV ở K8s (ConfigMap/Secret)
-# Ví dụ (K8s):
-# -e SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/payment_service
-# -e SPRING_DATASOURCE_USERNAME=payment_user
-# -e SPRING_DATASOURCE_PASSWORD=xxxx
-# -e SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-ENV JAVA_OPTS=""
-
-# Chạy app (cho phép set JAVA_OPTS trong CI/CD/K8s)
-ENTRYPOINT ["sh","-c","java $JAVA_OPTS -jar /app/app.jar"]
+ENTRYPOINT ["java","-jar","/app/app.jar"]

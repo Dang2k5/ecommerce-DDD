@@ -1,0 +1,53 @@
+stages:
+  - build
+
+variables:
+  DOCKER_TAG: "$CI_COMMIT_SHORT_SHA"
+
+.build_template:
+  stage: build
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  tags:
+    - k8s-runner
+  script:
+    - mkdir -p /kaniko/.docker
+    - |
+      echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" \
+      > /kaniko/.docker/config.json
+    - |
+      /kaniko/executor \
+        --context "${CI_PROJECT_DIR}/${SERVICE}" \
+        --dockerfile "${CI_PROJECT_DIR}/${SERVICE}/Dockerfile" \
+        --destination "${CI_REGISTRY_IMAGE}/${SERVICE}:${DOCKER_TAG}"
+
+build_customer:
+  extends: .build_template
+  variables:
+    SERVICE: customer-service
+
+build_identity:
+  extends: .build_template
+  variables:
+    SERVICE: identity-service
+
+build_inventory:
+  extends: .build_template
+  variables:
+    SERVICE: inventory-service
+
+build_order:
+  extends: .build_template
+  variables:
+    SERVICE: order-service
+
+build_payment:
+  extends: .build_template
+  variables:
+    SERVICE: payment-service
+
+build_product:
+  extends: .build_template
+  variables:
+    SERVICE: product-service

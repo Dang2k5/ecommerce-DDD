@@ -1,4 +1,6 @@
+.env
 .idea/
-**/.idea/
-.idea/
-**/.idea/
+*.iml
+gcm.deb
+**/target/
+**/.mvn/wrapper/maven-wrapper.jar
